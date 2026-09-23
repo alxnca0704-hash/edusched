@@ -1,0 +1,22 @@
+"use client";
+
+import { Button, Result } from "antd";
+
+import { APP_ROUTES } from "@/constants/routes";
+
+export function NoRolePage() {
+  return (
+    <div className="flex flex-1 items-center justify-center px-4 py-10">
+      <Result
+        status="info"
+        title="No role assigned"
+        subTitle="Your account has no assigned role yet. Please contact your administrator to be granted Dean or Teacher access."
+        extra={
+          <Button type="primary" href={APP_ROUTES.home}>
+            Go home
+          </Button>
+        }
+      />
+    </div>
+  );
+}
