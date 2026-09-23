@@ -1,0 +1,47 @@
+# Architecture Context
+
+## Stack
+
+| Layer      | Technology                          | Role                                                                 |
+| ---------- | ------------------------------------- | --------------------------------------------------------------------- |
+| Framework  | Next.js (App Router) + TypeScript     | Renders pages, routes requests, hosts the UI                          |
+| UI         | shadcn/ui + Tailwind CSS              | shadcn/ui for components (Table, Form, Dialog, Select, etc.), Tailwind for layout, spacing, and responsiveness |
+| Auth       | Clerk                                 | Handles sign-in and identity for Dean and Teacher accounts (manually seeded, no public sign-up) |
+| Database   | Convex                                | Stores and syncs Rooms, Subjects, Availability, and generated Schedules in real time |
+| Scheduling | Convex action (or external Python service, TBD) | Runs the CSP/GA algorithm and writes the result back to Convex |
+
+## System Boundaries
+
+- `app/` — Route-level pages only (Dean and Teacher pages). Each page file is thin: calls its matching hook, passes data/handlers into components. No fetch calls or business logic here.
+- `hooks/` — All functionality: Convex queries/mutations, Clerk user/session access, derived state, and event handlers. One hook per page (e.g. `useRooms.ts`, `useSubjects.ts`, `useAvailability.ts`, `useSchedule.ts`).
+- `components/` — Reusable, client-side UI only, built from shadcn/ui primitives (`<Table>`, `<Dialog>`, `<Form>`, `<Select>`, `<Card>`) styled with Tailwind. Receives data and handlers as props from hooks; contains no data-fetching logic.
+- `components/ui/` — shadcn/ui generated primitives (owned/copied into the repo by the shadcn CLI, not hand-written) — treated as the base layer, not edited casually.
+- `convex/` — Owns all backend logic: schema definitions, queries, mutations, and (if used) the scheduling action. This is the only place that talks to the database directly.
+- `types/` — Shared TypeScript types/interfaces (`Room`, `Subject`, `Teacher`, `ScheduleSession`, etc.), independent of Convex's generated types where app-level shaping is needed.
+- `constants/` — Fixed values: `roles.ts` (Dean/Teacher), `routes.ts` (`APP_ROUTES` for frontend paths, `API_ROUTES` if any REST endpoints exist outside Convex).
+- `lib/` — Shared utilities, including shadcn's `cn()` class-merge helper and any form-validation schemas (e.g. `zod` schemas used with shadcn's `<Form>`).
+- `middleware.ts` — Clerk middleware for route protection and role-based redirects.
+
+## Storage Model
+
+- **Convex (database)**: All application data — Rooms, Subjects, Teacher Availability, and generated Schedule records. Each record that belongs to a Teacher is linked via their Clerk `userId`. This is the single source of truth; the UI subscribes to Convex queries for live updates instead of manual refetching.
+- **Clerk (identity store)**: User identity only — email, name, password, and role metadata (`dean` or `teacher`). Clerk does not store scheduling data; it is referenced by `userId` from Convex records.
+- **No separate blob/file storage** at this stage — no file uploads or generated documents are part of the MVP scope.
+
+## Auth and Access Model
+
+- Every user signs in via Clerk using an account seeded manually ahead of time — there is no public sign-up page.
+- Role (`dean` or `teacher`) is stored in Clerk's user metadata and read on login to route the user to the correct dashboard (`/dean/*` or `/teacher/*`).
+- Convex functions receive the Clerk identity via the Convex–Clerk auth integration; mutations verify the caller's role/identity before writing data (e.g. a Teacher can only write to their own availability record, identified by their Clerk `userId`).
+- A Dean has access to all Rooms and Subjects (no per-department scoping in this prototype — single school/tenant assumed).
+- A Teacher can only read their own filtered schedule and can only mutate their own availability — never another teacher's data, and never Rooms/Subjects directly.
+
+## Invariants
+
+1. Route handlers and hooks never contain direct Convex queries written inline in components — all data access happens through `hooks/`, which call Convex `useQuery`/`useMutation`.
+2. No raw string paths anywhere in the codebase — every internal route comes from `APP_ROUTES` in `constants/routes.ts`.
+3. A Teacher's Availability and Schedule records are always looked up by their Clerk `userId`, never by name or email, to avoid ambiguity if two teachers share a name.
+4. The scheduling algorithm never runs as a blocking call inside a page render — it is triggered explicitly (button action) and its result is written to Convex, which the UI then reads reactively.
+5. Hard constraints (no double-booked teacher/room) are enforced in the scheduling logic itself, not in the UI — the UI only reflects the result and does not attempt to validate scheduling conflicts client-side.
+6. Every page handles `isLoading` and `error` states from its hook before rendering real content, using shadcn's `<Skeleton>` for loading and an inline error state (e.g. shadcn `<Alert variant="destructive">`) for failures — no page assumes Convex data has already loaded.
+7. `components/ui/` (shadcn primitives) is treated as generated/vendored code — feature-specific styling and logic live in `components/`, not by editing the primitives directly.
