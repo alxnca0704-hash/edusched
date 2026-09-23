@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
@@ -45,7 +46,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-slate-50 text-gray-900">
+      <body
+        className="min-h-full bg-slate-50 text-gray-900"
+        style={{ "--app-header-height": "3.5rem" } as CSSProperties}
+      >
         <ClerkProvider>
           <ConvexClientProvider>
             <AntdRegistry>
