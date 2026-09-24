@@ -1,8 +1,6 @@
 import { mutation, query } from "./_generated/server";
 
-function roleFromIdentity(role: unknown): "dean" | "teacher" | undefined {
-  return role === "dean" || role === "teacher" ? role : undefined;
-}
+import { roleOf } from "./roles";
 
 export const upsertUser = mutation({
   args: {},
@@ -13,7 +11,7 @@ export const upsertUser = mutation({
     }
 
     const clerkId = identity.subject;
-    const role = roleFromIdentity(identity.role);
+    const role = roleOf(identity);
     const now = Date.now();
 
     const existing = await ctx.db

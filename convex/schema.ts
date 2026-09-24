@@ -10,5 +10,14 @@ export default defineSchema({
     role: v.optional(v.union(v.literal("dean"), v.literal("teacher"))),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_clerkId", ["clerkId"]),
+  }).index("by_clerkId", ["clerkId"]).index("by_role", ["role"]),
+  subjects: defineTable({
+    name: v.string(),
+    durationMinutes: v.number(),
+    meetingsPerWeek: v.number(),
+    roomType: v.union(v.literal("lecture"), v.literal("lab")),
+    teacherId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_teacherId", ["teacherId"]),
 });

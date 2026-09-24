@@ -1,0 +1,27 @@
+import { z } from "zod";
+
+import { ROOM_TYPES } from "@/constants/subjects";
+
+export const subjectFormSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(120, "Name must be 120 characters or fewer"),
+  durationMinutes: z.coerce
+    .number()
+    .int("Duration must be a whole number")
+    .positive("Duration must be greater than 0")
+    .max(480, "Duration must be 480 minutes or fewer"),
+  meetingsPerWeek: z.coerce
+    .number()
+    .int("Meetings must be a whole number")
+    .positive("Meetings must be at least 1")
+    .max(10, "Meetings must be 10 or fewer"),
+  roomType: z.enum(ROOM_TYPES, {
+    message: "Choose a room type",
+  }),
+  teacherId: z.string().min(1, "Assign a teacher"),
+});
+
+export type SubjectFormSchema = z.infer<typeof subjectFormSchema>;
