@@ -11,11 +11,9 @@ export const subjectFormSchema = z.object({
     .int("Duration must be a whole number")
     .positive("Duration must be greater than 0")
     .max(480, "Duration must be 480 minutes or fewer"),
-  meetingsPerWeek: z.coerce
-    .number()
-    .int("Meetings must be a whole number")
-    .positive("Meetings must be at least 1")
-    .max(10, "Meetings must be 10 or fewer"),
+  dayPattern: z.enum(["MW", "TTh"], {
+    message: "Choose a schedule pattern",
+  }),
   roomId: z.string().min(1, "Choose a room"),
   teacherId: z.string().min(1, "Assign a teacher"),
 });

@@ -8,7 +8,7 @@
 | UI         | shadcn/ui + Tailwind CSS              | shadcn/ui for components (Table, Form, Dialog, Select, etc.), Tailwind for layout, spacing, and responsiveness |
 | Auth       | Clerk                                 | Handles sign-in and identity for Dean and Teacher accounts (manually seeded, no public sign-up) |
 | Database   | Convex                                | Stores and syncs Rooms, Subjects, Availability, and generated Schedules in real time |
-| Scheduling | Convex action (or external Python service, TBD) | Runs the CSP/GA algorithm and writes the result back to Convex |
+| Scheduling | Convex action (`convex/schedule.ts`) + pure TS engine in `convex/scheduling/` | The `generate` action reads Rooms, Subjects, and Availability, runs the CSP (`csp.ts`), and writes the result back to Convex. The GA (`ga.ts`) is implemented but not yet wired into the live flow (soft constraints are out of scope). Each subject meets twice a week as a **linked pair** on its `dayPattern` (`MW` = Mon & Wed, `TTh` = Tue & Thu); the CSP only chooses the time, applied identically on both pattern days. |
 
 ## System Boundaries
 
@@ -18,13 +18,13 @@
 - `components/ui/` — shadcn/ui generated primitives (owned/copied into the repo by the shadcn CLI, not hand-written) — treated as the base layer, not edited casually.
 - `convex/` — Owns all backend logic: schema definitions, queries, mutations, and (if used) the scheduling action. This is the only place that talks to the database directly.
 - `types/` — Shared TypeScript types/interfaces (`Room`, `Subject`, `Teacher`, `ScheduleSession`, etc.), independent of Convex's generated types where app-level shaping is needed.
-- `constants/` — Fixed values: `roles.ts` (Dean/Teacher), `routes.ts` (`APP_ROUTES` for frontend paths, `API_ROUTES` if any REST endpoints exist outside Convex).
+- `constants/` — Fixed values: `roles.ts` (Dean/Teacher), `routes.ts` (`APP_ROUTES` for frontend paths, `API_ROUTES` if any REST endpoints exist outside Convex), `dayPatterns.ts` (the `"MW" | "TTh"` vocabulary + day indexes; staged with no imports so the Convex-side scheduler can consume it).
 - `lib/` — Shared utilities, including shadcn's `cn()` class-merge helper and any form-validation schemas (e.g. `zod` schemas used with shadcn's `<Form>`).
 - `middleware.ts` — Clerk middleware for route protection and role-based redirects.
 
 ## Storage Model
 
-- **Convex (database)**: All application data — Rooms, Subjects, Teacher Availability, and generated Schedule records. Each record that belongs to a Teacher is linked via their Clerk `userId`. This is the single source of truth; the UI subscribes to Convex queries for live updates instead of manual refetching.
+- **Convex (database)**: All application data — Rooms, Subjects, Teacher Availability, and generated Schedule records. Each record that belongs to a Teacher is linked via their Clerk `userId`. This is the single source of truth; the UI subscribes to Convex queries for live updates instead of manual refetching. Generated schedules are stored as one `schedules` row per placed session (denormalized subject/teacher/room names at generation time, indexed by teacher id for the teacher view); regenerating replaces all rows atomically. Subjects carry a required `dayPattern` (`"MW" | "TTh"`) — the two days their two linked sessions land on; the pattern vocabulary/indexes live in `constants/dayPatterns.ts`.
 - **Clerk (identity store)**: User identity only — email, name, password, and role metadata (`dean` or `teacher`). Clerk does not store scheduling data; it is referenced by `userId` from Convex records.
 - **No separate blob/file storage** at this stage — no file uploads or generated documents are part of the MVP scope.
 

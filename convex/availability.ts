@@ -2,9 +2,13 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 import { roleOf } from "./roles";
+import {
+  AVAILABILITY_DAYS,
+  AVAILABILITY_TIME_SLOTS,
+} from "../constants/availability";
 
-const DAY_COUNT = 6;
-const TIME_SLOT_COUNT = 10;
+const DAY_COUNT = AVAILABILITY_DAYS.length;
+const TIME_SLOT_COUNT = AVAILABILITY_TIME_SLOTS.length;
 
 const SLOT_KEY_PATTERN = /^\d+-\d+$/;
 

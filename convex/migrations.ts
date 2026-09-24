@@ -6,6 +6,11 @@ type LegacySubject = Omit<Doc<"subjects">, "roomId"> & {
   roomType?: "lecture" | "lab";
 };
 
+type PrePatternSubject = Omit<Doc<"subjects">, "dayPattern" | "meetingsPerWeek"> & {
+  dayPattern?: "MW" | "TTh";
+  meetingsPerWeek?: number;
+};
+
 export const backfillSubjectRoomIds = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -44,11 +49,43 @@ export const backfillSubjectRoomIds = internalMutation({
       await ctx.db.replace(subject._id, {
         name: subject.name,
         durationMinutes: subject.durationMinutes,
-        meetingsPerWeek: subject.meetingsPerWeek,
+        dayPattern: subject.dayPattern ?? "MW",
         roomId,
         teacherId: subject.teacherId,
         createdAt: subject.createdAt,
         updatedAt: subject.updatedAt,
+      });
+      backfilled += 1;
+    }
+
+    return { backfilled };
+  },
+});
+
+export const backfillSubjectDayPatterns = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const subjects = await ctx.db.query("subjects").collect();
+    const missingPattern = subjects.filter(
+      (subject) => !(subject as PrePatternSubject).dayPattern,
+    ) as PrePatternSubject[];
+
+    if (missingPattern.length === 0) {
+      return { backfilled: 0 };
+    }
+
+    const now = Date.now();
+    let backfilled = 0;
+
+    for (const subject of missingPattern) {
+      await ctx.db.replace(subject._id, {
+        name: subject.name,
+        durationMinutes: subject.durationMinutes,
+        dayPattern: "MW",
+        roomId: subject.roomId,
+        teacherId: subject.teacherId,
+        createdAt: subject.createdAt,
+        updatedAt: now,
       });
       backfilled += 1;
     }

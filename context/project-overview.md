@@ -16,7 +16,7 @@ This is a prototype scheduling application that helps a school Dean generate a c
 1. Dean or Teacher logs in with a Clerk account that was seeded ahead of time (no self-registration)
 2. User is routed to their dashboard based on their role (Dean or Teacher), set via Clerk metadata
 3. **Dean:** adds Rooms (name, type) — saved to Convex
-4. **Dean:** adds Subjects (name, duration, meetings/week, required room type, assigned teacher — pulled from seeded Clerk teacher accounts) — saved to Convex
+4. **Dean:** adds Subjects (name, duration, day pattern MW or TTh, assigned teacher + room — pulled from seeded Clerk teacher accounts and the rooms table) — saved to Convex
 5. **Teacher:** logs in and marks unavailable days/times — saved to Convex, linked to their Clerk user ID
 6. **Dean:** clicks "Generate Schedule"
 7. System reads Rooms, Subjects, and Availability from Convex, runs the scheduling logic, and writes the resulting schedule back to Convex
@@ -45,8 +45,12 @@ This is a prototype scheduling application that helps a school Dean generate a c
 ### Subject Management (Dean)
 
 - Add, view, edit, and delete subjects
-- Each subject has a name, session duration, meetings per week, required room type, and one assigned teacher
-- Dean does not set the day/time/room directly — that is decided by the scheduling algorithm
+- Each subject has a name, session duration, a day pattern (MW = Mon &
+  Wed, TTh = Tue & Thu — the subject meets twice a week on those days), an
+  assigned room, and one assigned teacher
+- Dean does not set the day/time/room of each session directly — that is
+  decided by the scheduling algorithm (the pattern fixes *which* two days;
+  the algorithm picks the time, applied identically on both days)
 
 ### Schedule Generation (Dean)
 

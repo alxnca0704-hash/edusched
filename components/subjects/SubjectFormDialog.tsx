@@ -22,6 +22,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ROOM_TYPE_LABELS } from "@/constants/rooms";
+import {
+  DAY_PATTERN_LABELS,
+  DAY_PATTERN_OPTIONS,
+  type DayPattern,
+} from "@/constants/dayPatterns";
 import { errorMessage } from "@/lib/result";
 import { subjectFormSchema } from "@/lib/validation/subject";
 import type {
@@ -53,8 +58,8 @@ export function SubjectFormDialog({
   const [durationMinutes, setDurationMinutes] = useState(
     subject ? String(subject.durationMinutes) : "",
   );
-  const [meetingsPerWeek, setMeetingsPerWeek] = useState(
-    subject ? String(subject.meetingsPerWeek) : "",
+  const [dayPattern, setDayPattern] = useState<DayPattern | null>(
+    subject?.dayPattern ?? null,
   );
   const [roomId, setRoomId] = useState<string | null>(subject?.roomId ?? null);
   const [teacherId, setTeacherId] = useState<string | null>(
@@ -74,7 +79,7 @@ export function SubjectFormDialog({
     const parsed = subjectFormSchema.safeParse({
       name,
       durationMinutes,
-      meetingsPerWeek,
+      dayPattern: dayPattern ?? "",
       roomId: roomId ?? "",
       teacherId: teacherId ?? "",
     });
@@ -165,20 +170,32 @@ export function SubjectFormDialog({
               ) : null}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor={`${formId}-meetings`}>Meetings / week</Label>
-              <Input
-                id={`${formId}-meetings`}
-                type="number"
-                min={1}
-                max={10}
-                value={meetingsPerWeek}
-                onChange={(event) => setMeetingsPerWeek(event.target.value)}
-                placeholder="2"
-                aria-invalid={Boolean(fieldErrors.meetingsPerWeek)}
-              />
-              {fieldErrors.meetingsPerWeek ? (
+              <Label htmlFor={`${formId}-days`}>Schedule pattern</Label>
+              <Select
+                value={dayPattern}
+                onValueChange={(value) => setDayPattern(value as DayPattern)}
+                modal={false}
+              >
+                <SelectTrigger id={`${formId}-days`} className="w-full">
+                  <SelectValue>
+                    {(value) =>
+                      value
+                        ? DAY_PATTERN_LABELS[value as DayPattern]
+                        : "Select a schedule pattern"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {DAY_PATTERN_OPTIONS.map((pattern) => (
+                    <SelectItem key={pattern} value={pattern}>
+                      {DAY_PATTERN_LABELS[pattern]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {fieldErrors.dayPattern ? (
                 <p className="text-xs text-destructive">
-                  {fieldErrors.meetingsPerWeek}
+                  {fieldErrors.dayPattern}
                 </p>
               ) : null}
             </div>

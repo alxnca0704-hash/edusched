@@ -2,13 +2,13 @@ import type {
   AvailabilityDay,
   AvailabilitySlotKey,
   AvailabilityTimeSlot,
-} from "@/types/availability";
+} from "../types/availability";
 
-export const AVAILABILITY_START_MINUTES = 7 * 60;
-export const AVAILABILITY_END_MINUTES = 17 * 60;
+export const AVAILABILITY_START_MINUTES = 7 * 60 + 30;
+export const AVAILABILITY_END_MINUTES = 19 * 60 + 30;
 export const AVAILABILITY_SLOT_DURATION_MINUTES = 60;
 
-function formatClock(minutes: number): string {
+export function formatClock(minutes: number): string {
   const hours24 = Math.floor(minutes / 60);
   const mins = minutes % 60;
   const period = hours24 < 12 ? "AM" : "PM";
