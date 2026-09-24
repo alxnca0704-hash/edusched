@@ -2,23 +2,10 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 import { roleOf } from "./roles";
-
-const DAY_COUNT = 6;
-const TIME_SLOT_COUNT = 10;
-
-const SLOT_KEY_PATTERN = /^\d+-\d+$/;
+import { parseAvailabilityPatternKey } from "../constants/availability";
 
 export function isValidSlotKey(key: string): boolean {
-  if (!SLOT_KEY_PATTERN.test(key)) {
-    return false;
-  }
-  const [dayIndex, timeSlotIndex] = key.split("-").map(Number);
-  return (
-    dayIndex >= 0 &&
-    dayIndex < DAY_COUNT &&
-    timeSlotIndex >= 0 &&
-    timeSlotIndex < TIME_SLOT_COUNT
-  );
+  return parseAvailabilityPatternKey(key) !== null;
 }
 
 function toErrorString(error: unknown): string {

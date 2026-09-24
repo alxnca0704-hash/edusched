@@ -5,6 +5,7 @@ export const APP_ROUTES = {
   dean: "/dean",
   deanRooms: "/dean/rooms",
   deanSubjects: "/dean/subjects",
+  deanSchedule: "/dean/schedule",
   teacher: "/teacher",
   teacherAvailability: "/teacher/availability",
   teacherSchedule: "/teacher/schedule",

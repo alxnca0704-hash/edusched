@@ -1,6 +1,12 @@
 import { internalMutation } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 
+import { AVAILABILITY_TIME_SLOTS } from "../constants/availability";
+import {
+  DAY_PATTERN_DAY_INDEXES,
+  type DayPattern,
+} from "../constants/dayPatterns";
+
 type LegacySubject = Omit<Doc<"subjects">, "roomId"> & {
   roomId?: Id<"rooms">;
   roomType?: "lecture" | "lab";
@@ -44,7 +50,6 @@ export const backfillSubjectRoomIds = internalMutation({
       await ctx.db.replace(subject._id, {
         name: subject.name,
         durationMinutes: subject.durationMinutes,
-        meetingsPerWeek: subject.meetingsPerWeek,
         roomId,
         teacherId: subject.teacherId,
         createdAt: subject.createdAt,
@@ -54,5 +59,159 @@ export const backfillSubjectRoomIds = internalMutation({
     }
 
     return { backfilled };
+  },
+});
+
+/**
+ * Day patterns moved from the Subject (Dean-chosen input) to the generated
+ * Schedule (algorithm-chosen output), so existing subject docs that still
+ * carry a stored `dayPattern` are rewritten without it. Idempotent: a second
+ * run reports 0.
+ */
+export const backfillSubjectRemoveDayPattern = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const subjects = await ctx.db.query("subjects").collect();
+    let cleaned = 0;
+
+    for (const subject of subjects) {
+      if (Object.prototype.hasOwnProperty.call(subject, "dayPattern")) {
+        await ctx.db.replace(subject._id, {
+          name: subject.name,
+          durationMinutes: subject.durationMinutes,
+          roomId: subject.roomId,
+          teacherId: subject.teacherId,
+          createdAt: subject.createdAt,
+          updatedAt: subject.updatedAt,
+        });
+        cleaned += 1;
+      }
+    }
+
+    return { cleaned };
+  },
+});
+
+/**
+ * `dayPattern` is now an algorithm output stored on each generated session,
+ * so older schedule rows (generated before this field existed) get one
+ * derived from the actual days they landed on ({0,2} → MW, {1,3} → TTh).
+ * Idempotent: rows that already carry `dayPattern` are left untouched.
+ */
+export const backfillScheduleDayPatterns = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const sessions = await ctx.db.query("schedules").collect();
+    const daysBySubject = new Map<string, Set<number>>();
+    for (const session of sessions) {
+      if (Object.prototype.hasOwnProperty.call(session, "dayPattern")) {
+        continue;
+      }
+      let set = daysBySubject.get(session.subjectId);
+      if (!set) {
+        set = new Set();
+        daysBySubject.set(session.subjectId, set);
+      }
+      set.add(session.dayIndex);
+    }
+
+    const patternBySubject = new Map<string, "MW" | "TTh">();
+    for (const [subjectId, daySet] of daysBySubject) {
+      const detected =
+        (
+          ["MW", "TTh"] as const
+        ).find((pattern) => {
+          const expected = DAY_PATTERN_DAY_INDEXES[pattern];
+          return (
+            expected.length === daySet.size &&
+            expected.every((dayIndex) => daySet.has(dayIndex))
+          );
+        }) ?? "MW";
+      patternBySubject.set(subjectId, detected);
+    }
+
+    let backfilled = 0;
+    for (const session of sessions) {
+      const pattern = patternBySubject.get(session.subjectId);
+      if (pattern) {
+        await ctx.db.patch(session._id, {
+          dayPattern: pattern,
+          updatedAt: Date.now(),
+        });
+        backfilled += 1;
+      }
+    }
+
+    return { backfilled };
+  },
+});
+
+const OLD_SLOT_KEY = /^(\d)-(\d+)$/;
+const NEW_SLOT_KEY = /^(MW|TTh)-(\d+)$/;
+
+function patternForDayIndex(dayIndex: number): DayPattern | null {
+  for (const pattern of ["MW", "TTh"] as const) {
+    if (DAY_PATTERN_DAY_INDEXES[pattern].includes(dayIndex)) {
+      return pattern;
+    }
+  }
+  return null;
+}
+
+export const backfillAvailabilityDayPairs = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const docs = await ctx.db.query("availability").collect();
+    let converted = 0;
+
+    for (const doc of docs) {
+      const oldKeys = doc.blockedSlots.filter((key) => OLD_SLOT_KEY.test(key));
+      if (oldKeys.length === 0) {
+        continue;
+      }
+
+      // Union: a time is blocked on the pair if the teacher blocked it on
+      // EITHER of the two pattern days. This preserves the old per-day intent
+      // (never schedule a blocked day) instead of riskily clearing a block
+      // whose counterpart day was left free.
+      const slotsByPattern: { MW: Set<number>; TTh: Set<number> } = {
+        MW: new Set(),
+        TTh: new Set(),
+      };
+      for (const key of oldKeys) {
+        const match = OLD_SLOT_KEY.exec(key);
+        if (!match) {
+          continue;
+        }
+        const dayIndex = Number(match[1]);
+        const slotIndex = Number(match[2]);
+        if (
+          slotIndex < 0 ||
+          slotIndex >= AVAILABILITY_TIME_SLOTS.length
+        ) {
+          continue;
+        }
+        const pattern = patternForDayIndex(dayIndex);
+        if (pattern) {
+          slotsByPattern[pattern].add(slotIndex);
+        }
+      }
+
+      const patternKeys = [
+        ...[...slotsByPattern.MW].sort((a, b) => a - b).map((slot) => `MW-${slot}`),
+        ...[...slotsByPattern.TTh].sort((a, b) => a - b).map((slot) => `TTh-${slot}`),
+      ];
+      const alreadyPatternKeys = doc.blockedSlots.filter((key) =>
+        NEW_SLOT_KEY.test(key),
+      );
+
+      await ctx.db.patch(doc._id, {
+        blockedSlots: [...new Set([...alreadyPatternKeys, ...patternKeys])],
+        updatedAt: Date.now(),
+      });
+      converted += 1;
+    }
+
+    return { converted };
   },
 });

@@ -6,7 +6,6 @@ import { isDean } from "./roles";
 const subjectFields = {
   name: v.string(),
   durationMinutes: v.number(),
-  meetingsPerWeek: v.number(),
   roomId: v.id("rooms"),
   teacherId: v.string(),
 };
@@ -99,7 +98,6 @@ export const create = mutation({
     return ctx.db.insert("subjects", {
       name: args.name.trim(),
       durationMinutes: args.durationMinutes,
-      meetingsPerWeek: args.meetingsPerWeek,
       roomId: args.roomId,
       teacherId: args.teacherId,
       createdAt: now,
@@ -144,7 +142,6 @@ export const update = mutation({
     await ctx.db.patch(args.id, {
       name: args.name.trim(),
       durationMinutes: args.durationMinutes,
-      meetingsPerWeek: args.meetingsPerWeek,
       roomId: args.roomId,
       teacherId: args.teacherId,
       updatedAt: Date.now(),

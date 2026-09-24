@@ -4,7 +4,6 @@ export interface Subject {
   _id: string;
   name: string;
   durationMinutes: number;
-  meetingsPerWeek: number;
   roomId: string;
   teacherId: string;
   createdAt: number;
@@ -20,7 +19,6 @@ export interface SubjectListItem extends Subject {
 export interface SubjectFormValues {
   name: string;
   durationMinutes: number;
-  meetingsPerWeek: number;
   roomId: string;
   teacherId: string;
 }

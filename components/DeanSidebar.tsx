@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, DoorOpen, LayoutDashboard } from "lucide-react";
+import { BookOpen, CalendarCog, DoorOpen, LayoutDashboard } from "lucide-react";
 
 import {
   AppSidebar,
@@ -31,6 +31,11 @@ const DEAN_NAV: readonly AppSidebarNavGroup[] = [
         title: "Manage Subjects",
         href: APP_ROUTES.deanSubjects,
         icon: BookOpen,
+      },
+      {
+        title: "Generate Schedule",
+        href: APP_ROUTES.deanSchedule,
+        icon: CalendarCog,
       },
     ],
   },

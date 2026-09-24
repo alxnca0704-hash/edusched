@@ -9,10 +9,10 @@ import { AvailabilityGridSkeleton } from "@/components/availability/Availability
 import { ErrorState } from "@/components/shared/ErrorState";
 import { Button } from "@/components/ui/button";
 import {
-  AVAILABILITY_DAYS,
   AVAILABILITY_TIME_SLOTS,
-  availabilitySlotKey,
+  availabilityPatternKey,
 } from "@/constants/availability";
+import { DAY_PATTERN_OPTIONS, type DayPattern } from "@/constants/dayPatterns";
 import { useAvailability } from "@/hooks/useAvailability";
 import { errorMessage } from "@/lib/result";
 
@@ -48,8 +48,8 @@ export function AvailabilityPage() {
   const savedSet = useMemo(() => new Set(savedKeys), [savedKeys]);
   const isDirty = !slotSetsEqual(draft, savedSet);
 
-  function toggleSlot(dayIndex: number, timeSlotIndex: number) {
-    const key = availabilitySlotKey(dayIndex, timeSlotIndex);
+  function toggleSlot(dayPattern: DayPattern, timeSlotIndex: number) {
+    const key = availabilityPatternKey(dayPattern, timeSlotIndex);
     setDraft((current) => {
       const next = new Set(current);
       if (next.has(key)) {
@@ -107,8 +107,9 @@ export function AvailabilityPage() {
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-tight">Availability</h1>
         <p className="text-sm text-muted-foreground">
-          Mark the weekly time slots when you&apos;re unavailable. The
-          scheduler will avoid scheduling you then.
+          Mark the weekly time slots when you&apos;re unavailable. Each block
+          applies to both days of a schedule pair — Mon &amp; Wed (MW) or
+          Tue &amp; Thu (TTh). The scheduler will avoid scheduling you then.
         </p>
       </div>
 
@@ -116,7 +117,8 @@ export function AvailabilityPage() {
         <div className="mt-4 flex items-center gap-2 rounded-lg bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
           <CalendarOff className="size-4 shrink-0" />
           <span>
-            No unavailable slots marked yet — toggle cells below to block time.
+            No unavailable slots marked yet — toggle cells below to block time
+            for a schedule pair.
           </span>
         </div>
       ) : null}
@@ -128,7 +130,8 @@ export function AvailabilityPage() {
       {!isLoading && !error ? (
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            {draft.size} of {AVAILABILITY_DAYS.length * AVAILABILITY_TIME_SLOTS.length}{" "}
+            {draft.size} of{" "}
+            {DAY_PATTERN_OPTIONS.length * AVAILABILITY_TIME_SLOTS.length}{" "}
             slots blocked
             {isDirty ? " (unsaved changes)" : ""}
           </p>

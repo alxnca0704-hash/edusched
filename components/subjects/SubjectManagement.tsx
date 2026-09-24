@@ -79,7 +79,6 @@ export function SubjectManagement() {
               <TableHead className="w-44">Subject</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Duration</TableHead>
-              <TableHead>Meetings</TableHead>
               <TableHead>Teacher</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -92,9 +91,6 @@ export function SubjectManagement() {
                 </TableCell>
                 <TableCell>
                   <Skeleton className="h-5 w-16" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-12" />
                 </TableCell>
                 <TableCell>
                   <Skeleton className="h-4 w-12" />
@@ -154,7 +150,6 @@ export function SubjectManagement() {
             <TableHead className="w-44">Subject</TableHead>
             <TableHead>Category</TableHead>
             <TableHead>Duration</TableHead>
-            <TableHead>Meetings</TableHead>
             <TableHead>Teacher</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -175,9 +170,6 @@ export function SubjectManagement() {
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {subject.durationMinutes} min
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {subject.meetingsPerWeek} / week
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {subject.teacherName}

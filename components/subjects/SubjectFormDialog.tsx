@@ -53,9 +53,6 @@ export function SubjectFormDialog({
   const [durationMinutes, setDurationMinutes] = useState(
     subject ? String(subject.durationMinutes) : "",
   );
-  const [meetingsPerWeek, setMeetingsPerWeek] = useState(
-    subject ? String(subject.meetingsPerWeek) : "",
-  );
   const [roomId, setRoomId] = useState<string | null>(subject?.roomId ?? null);
   const [teacherId, setTeacherId] = useState<string | null>(
     subject?.teacherId ?? null,
@@ -74,7 +71,6 @@ export function SubjectFormDialog({
     const parsed = subjectFormSchema.safeParse({
       name,
       durationMinutes,
-      meetingsPerWeek,
       roomId: roomId ?? "",
       teacherId: teacherId ?? "",
     });
@@ -161,24 +157,6 @@ export function SubjectFormDialog({
               {fieldErrors.durationMinutes ? (
                 <p className="text-xs text-destructive">
                   {fieldErrors.durationMinutes}
-                </p>
-              ) : null}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor={`${formId}-meetings`}>Meetings / week</Label>
-              <Input
-                id={`${formId}-meetings`}
-                type="number"
-                min={1}
-                max={10}
-                value={meetingsPerWeek}
-                onChange={(event) => setMeetingsPerWeek(event.target.value)}
-                placeholder="2"
-                aria-invalid={Boolean(fieldErrors.meetingsPerWeek)}
-              />
-              {fieldErrors.meetingsPerWeek ? (
-                <p className="text-xs text-destructive">
-                  {fieldErrors.meetingsPerWeek}
                 </p>
               ) : null}
             </div>
