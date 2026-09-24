@@ -5,24 +5,100 @@ change.
 
 ## Current Phase
 
-Complete — Fixed Day-Pair Scheduling (MW / TTh)
-(extend the spec 05 generator so each subject meets twice a week as a
-linked pair on a chosen day pattern: `"MW"` Mon+Wed or `"TTh"` Tue+Thu)
+Complete — The Algorithm Chooses the Day Pattern (MW / TTh)
+(the Dean no longer picks a subject's MW-vs-TTh pattern; `generate` tries
+both day patterns per subject, prefers MW, and records the chosen pattern on
+the resulting schedule rows — subjects no longer store `dayPattern`)
 
 ## Current Goal
 
-Replaced `meetingsPerWeek` with a `dayPattern` (`"MW" | "TTh"`) on every
-Subject: the subject form picks the pattern, the CSP places each subject's
-two sessions as a linked pair (same time + same room on both pattern days)
-by solving only the time, and the schedule tables group subjects into one
-row with a pattern badge. Migration `backfillSubjectDayPatterns` converted
-the live dev subjects (SE 101, HCI 101, OS 101 → `"MW"`). Schema restored
-to strict (`dayPattern` required, `meetingsPerWeek` removed). GA updated to
-pair-atom chromosomes but still not wired in (soft constraints out of
-scope). Loading/empty/error/infeasible states per code-standards; lint +
-build pass.
+Remove `dayPattern` from the Subject as a Dean input. The CSP now builds a
+per-subject **domain** with one session-pair option per pattern (MW first,
+then TTh) and backtracks over the combined candidates (most-constrained
+subject first by total candidate count), so a subject is infeasible only when
+BOTH patterns fail. `PlacedSession`/`schedules` rows carry the chosen
+`dayPattern` as an output; `validate` and the GA read it from placed
+sessions; diagnostics explain each failed pattern separately (cause + free
+windows + message per pattern). UI: no "Schedule Pattern" field/column on
+subjects; the schedule table and per-pattern error accordion read the pattern
+from schedule records. Dev was migrated (3 subjects stripped, 6 backfilled
+schedule rows) via an optional→required schema window
+(`migrations:backfillSubjectRemoveDayPattern` +
+`migrations:backfillScheduleDayPatterns`). Lint + build perfectly clean and
+39/39 smoke assertions pass.
 
 ## Completed
+
+- **Algorithm Chooses the Day Pattern (MW / TTh), not the Dean** — full unit:
+  - `convex/scheduling/types.ts`: `SchedulingSubject` no longer carries
+    `dayPattern`; `PlacedSession` gains `dayPattern`;
+    `InfeasibilityReason` is now `{ subjectName, durationMinutes, patterns }`
+    where `patterns: readonly PatternInfeasibility[]`
+    (`{ dayPattern, day1FreeWindows, day2FreeWindows, cause, message }`);
+    `CspInfeasibleReason` drops `invalid-pattern` (no pattern to validate).
+  - `convex/scheduling/csp.ts` rewritten: new `SubjectDomain
+    { subject, options }` — one `SubjectUnit` per pattern (MW first, then
+    TTh), each with its own candidates; `expandSubjectsIntoSessions` returns
+    `{ domains, reasons, reason }`, generating an infeasibility reason only
+    when BOTH patterns have zero candidates. Search sorts domains by **total
+    candidate count across both options** (MRV) then plans each subject by
+    trying MW candidates then TTh candidates — a subject is infeasible only
+    if neither pattern fits. `diagnoseFailedPlacement` greedily places
+    domains the same way; `toPlacedSessions` tags each session's pattern;
+    `invalid-pattern` validation removed.
+  - `convex/scheduling/cspDiagnostics.ts`: new `explainPatternFailure`
+    (per pattern: cause + windows + message); `explainInfeasibility` returns
+    one entry per pattern (MW then TTh) so the UI can show exactly what
+    blocks each. `freeWindowsForDay`/`sharedStartTimes` unchanged.
+  - `convex/scheduling/validate.ts`: pattern days now come from the placed
+    session's `dayPattern` (not the subject); pair/time/room/block checks
+    unchanged.
+  - `convex/scheduling/ga.ts`: after `expandSubjectsIntoSessions`, builds one
+    unit per subject by matching each domain's option to the seed solution's
+    chosen pattern (fallback: first option), locking the CSP's pattern choice
+    into the GA's chromosome; decode/validate unchanged.
+  - `convex/schedule.ts`: `sessionValidator` + written sessions carry
+    `dayPattern`; `SubjectRow`/`buildSchedulingInput` drop it; single-subject
+    infeasibility summary now references "can't place on either MW or TTh".
+  - `convex/schema.ts`: `subjects` drops `dayPattern`;
+    `schedules` adds required `dayPattern`.
+  - `convex/subjects.ts`: `subjectFields`/create/update drop `dayPattern`.
+  - `convex/migrations.ts`: added idempotent `backfillSubjectRemoveDayPattern`
+    (rewrites subject docs without the field) and
+    `backfillScheduleDayPatterns` (derives each old row's pattern from its
+    actual days: {0,2}→MW, {1,3}→TTh); `backfillSubjectRoomIds` replace no
+    longer writes `dayPattern`; obsolete `backfillSubjectDayPatterns` removed.
+  - Frontend: `types/subjects.ts`, `lib/validation/subject.ts`,
+    `components/subjects/SubjectFormDialog.tsx` (pattern select removed),
+    `components/subjects/SubjectManagement.tsx` (pattern column + search
+    terms removed); `types/schedule.ts` (`ScheduleSession.dayPattern`;
+    `InfeasibleSubject.patterns: InfeasiblePattern[]`);
+    `components/schedule/ScheduleTable.tsx` (pattern badge reads
+    `sessions[0].dayPattern`); `components/schedule/ScheduleGenerationError.tsx`
+    (per-pattern accordion entries: pattern badge + cause label + message +
+    both days' free-window blocks).
+  - Migration (dev): raw data had 3 subjects WITH `dayPattern` and 6 schedule
+    rows WITHOUT it. Since this CLI (Convex 1.46) exposes no
+    `schema:push --relax`, the window was expressed in the schema itself:
+    (1) `subjects.dayPattern` / `schedules.dayPattern` made optional, push;
+    (2) ran `migrations:backfillSubjectRemoveDayPattern` (cleaned 3) and
+    `migrations:backfillScheduleDayPatterns` (backfilled 6 — all MW, matching
+    their day indexes); (3) final schema (subject field removed, schedule
+    field required), re-push. Verified via `convex data` that subjects have
+    no `dayPattern` and every schedule row does.
+  - Verification: `scripts/scheduling-smoke-test.ts` rewritten —
+    **39/39 assertions**: feasible case with MW-default (every subject lands
+    Mon+Wed), Math still pinned to slot 9, GA stays valid while keeping the
+    seed-chosen pattern, **TTh fallback when MW is fully blocked**,
+    25-subject one-room overflow → `no-room-available`, duration validation,
+    SE 101 dev mirror, 3-subject dev seed, fully-blocked teachers → one
+    reason per subject with **both** patterns explained (empty windows + "No
+    matching start time"), pattern-availability mirroring, and a reworked
+    room-vs-teacher distinction (TTh fully blocked so the pair can't split —
+    MW reports `no-room-available`, TTh reports `no-shared-teacher-window`).
+    Root `npx tsc --noEmit` clean, `npm run lint` (0 errors — same
+    5 pre-existing warnings), `npm run build` passes, functions + schema
+    pushed to dev.
 
 - Initial project scaffold (Next.js 16 + Convex + Clerk)
 - Convex user synchronization and user schema (upsert by Clerk user id)
@@ -396,6 +472,59 @@ build pass.
   - Note: this project's slot step is 60 minutes, not the 30 the change
     brief assumed; left at 60 (the brief's "leave as-is unless runtime is
     excessive" — it isn't; the 13-subject overflow resolves instantly).
+- **Teacher Availability by Day-Pair (spec 06)** — full unit:
+  - Availability is entered once per day-pair, not per individual day:
+    `AvailabilityGrid.tsx` is now a **2-column** grid ("Mon & Wed" / "Tue &
+    Thu" with the `MW` / `TTh` code beneath), each toggle applies to both days
+    of the pair; `AvailabilityGridSkeleton.tsx` mirrors the 2 columns;
+    `AvailabilityPage` toggles by `(dayPattern, timeSlotIndex)` and counts
+    `2 × 12` slots; the page/empty-state copy explains that a block covers
+    both days.
+  - **Blocked cells are now red** (`bg-destructive` +
+    `text-destructive-foreground`) instead of the green accent. Added
+    `--destructive-foreground` (light/dark) to `globals.css` + mapped it in
+    `@theme inline`. Rationale: blocked = unavailable = the destructive
+    semantic, and it visually separates availability from the sidebar's green
+    accent.
+  - Slot keys changed from `"<dayIndex>-<timeIndex>"` to
+    `"<pattern>-<timeIndex>"` (`MW-0`, `TTh-11`): `constants/availability.ts`
+    now exports `availabilityPatternKey` / `parseAvailabilityPatternKey` /
+    `availabilityPatternSlotLabel` / `areaPatternLabel`, and
+    `AVAILABILITY_PATTERNS` = `DAY_PATTERN_OPTIONS`. It imports only types +
+    the import-free `constants/dayPatterns.ts`, so Convex's tscc still
+    resolves it. `convex/availability.ts`'s validator is now just "string
+    parses via `parseAvailabilityPatternKey`" (bounds included).
+  - Engine consumes patterns: `SchedulingAvailability.blockedByDay` →
+    `blockedByPattern: { dayPattern, slotIndexes }[]`
+    (`convex/scheduling/types.ts`); `convex/scheduling/util.ts`
+    `blockedByDayFor` resolves each pattern's blocks onto **both** of its
+    days, so the two days of a pair always carry identical blocks and a
+    Mon-vs-Wed (or Tue-vs-Thu) availability mismatch is structurally
+    impossible to express. `csp.ts`/`validate.ts`/`cspDiagnostics.ts`
+    unchanged apart from the util helper — they read the resolved day map.
+    The `no-shared-teacher-window` cause can now only come from per-day
+    placed-session differences or a fully-blocked pattern (diagnostic
+    docstring updated). `convex/schedule.ts` `buildSchedulingInput` parses
+    the new keys into `blockedByPattern`.
+  - Migration `backfillAvailabilityDayPairs` (internal, idempotent) converts
+    legacy `"<day>-<slot>"` keys to pattern keys with **union** semantics (a
+    time is blocked on the pair if it was blocked on EITHER day — the
+    conservative choice; flagged in Open Questions). Ran against dev: 1 doc
+    converted; a second run returns 0 (idempotent). No relaxed-schema window
+    was needed — the `availability` table shape (`blockedSlots: string[]`) is
+    unchanged, only the key format differs.
+  - Smoke test rebuilt for patterns: **35/35 assertions** — fixtures use
+    `blockedByPattern`; "MW slots 0-8 blocked → pair to slot 9" kept; the old
+    Mon-freely/Wed-busy mismatch case (now unexpressible) was replaced by a
+    structural test asserting free windows are identical on both pattern days
+    (`freeWindowsForDay`, slot 0 = 7:30–8:30 AM) plus a fully-blocked-pattern
+    `no-shared-teacher-window` case with empty windows on both days.
+  - Verified: `npx tsx scripts/scheduling-smoke-test.ts` (35/35), root
+    `npx tsc --noEmit` clean, `npm run lint` (0 errors — same pre-existing
+    warnings), `npm run build` passes, `npx convex codegen` pushed cleanly.
+  - Note: Friday/Saturday were days on the old grid but can't hold any class
+    today (patterns only cover Mon-Wed / Tue-Thu), so the availability UI no
+    longer offers them (see Open Questions).
 
 ## In Progress
 
@@ -412,7 +541,11 @@ build pass.
    constraints come in scope — `convex/scheduling/ga.ts` is already built,
    standalone-tested (pair-atom chromosomes), and left with a clear call
    site
-4. Sanity-check the `ScheduleGenerationError` accordion in the browser
+4. Sanity-check the 2-column availability grid in the browser (real teacher
+   login): red blocked cells, save/reset round-trip, tooltip labels — the
+   pattern keys and grid are covered by lint/build/smoke, but the visual/UX
+   hasn't been eyeballed
+5. Sanity-check the `ScheduleGenerationError` accordion in the browser
    (real Dean, school-hours blocks) — the engine diagnostics and the UI
    state machine are verified by the smoke test + build, but a live generate
    failure hasn't been eyeballed.
@@ -438,24 +571,46 @@ build pass.
   room. If a subject should instead be placeable in *any* room of a type,
   the schema would expose `roomType` on the subject and the CSP's room
   candidates would widen — decide before extending the scheduler.
-- Dev seed data only has lab rooms (IT Lab 1–3) and three MW subjects
+- Dev seed data only has lab rooms (IT Lab 1–3) and three subjects
   (SE 101 → IT Lab 1 180 min, HCI 101 → IT Lab 2 120 min, OS 101 → IT Lab 3
-  180 min; all `dayPattern: "MW"`, one teacher) with teacher availability
-  unset. Generating over the empty availability set works and yields 6
-  linked sessions with no teacher double-books (verified), but a typical
-  timetable needs the Dean to add lecture rooms/subjects and teachers to
-  set availability first.
+  180 min; one teacher, availability unset) with no `dayPattern` on the
+  subject. Generating over the empty availability set works and yields 6
+  linked sessions, all landing on MW by default
+  (matches the backfilled schedule rows), with no teacher double-books
+  (verified) — but a typical timetable needs the Dean to add lecture
+  rooms/subjects and teachers to set availability first.
 - **Day patterns beyond MW/TTh**: today a subject must meet twice on a
   contiguous Mon-Wed or Tue-Thu pair. The user's example key was `TTH`
   (reconciled to `TTh` to match the required union `"MW" | "TTh"`). Later
   patterns (e.g. a Friday-only lab, or M/W/F) would extend
   `DAY_PATTERN_DAY_INDEXES` / the union and relax the "exactly 2 sessions"
-  assumption in `expandSubjectsIntoSessions` and `validate.ts`. Decide
-  whether the pattern set should stay closed.
-- The `backfillSubjectDayPatterns` migration defaults every legacy subject
-  to `"MW"` (chosen because the prior seed carried `meetingsPerWeek: 2`).
-  If any pre-pattern subject truly meant `TTh`, flip it in the UI before
-  regenerating.
+  assumption in `expandSubjectsIntoSessions` and `validate.ts` — and, since
+  spec 06, the availability model is pattern-shaped too (a new pattern would
+  need a grid column + key prefix). Decide whether the pattern set should
+  stay closed.
+- **Migration semantics for the one converted availability doc**: spec 06's
+  `backfillAvailabilityDayPairs` used **union** (a pair-slot is blocked if it
+  was blocked on EITHER of the two days), the conservative choice that never
+  schedules a teacher in time they'd blocked on any day. The spec suggested
+  intersection instead (only block what's blocked on both days) — I chose
+  union and flagged it: switch only if deliberate, and note the migration
+  is idempotent (a second run reports 0), so an intersection change needs a
+  manual re-run or a new migration.
+- **Friday / Saturday dropped from the availability grid**: with per-pattern
+  availability there is no Mon..Sat day grid anymore — only the MW and TTh
+  pair columns. That's correct today because subjects can only be MW/TTh, but
+  any future Fri/Sat scheduling (or a "stack a subject on both days of a
+  pattern plus a Friday lab") needs both a new day-pattern and a wider
+  availability model.
+- **Do any subjects legitimately need DIFFERENT times on their two pattern
+  days?** If yes, the linked-pair-at-same-time assumption (day-pair scheduling
+  from the Fixed Day-Pair unit) and this per-pattern availability model both
+  unravel — revisit before extending the scheduler in any direction.
+- (Resolved) The subject-level `dayPattern` input is gone entirely
+  (Algorithm-Chooses-the-Pattern unit): the `backfillSubjectDayPatterns`
+  migration and its `PrePatternSubject` default-to-MW question are obsolete.
+  The chosen pattern now lives on schedule rows as an output, so Dean input
+  can't drift from what the algorithm actually scheduled.
 - The schedule table groups a subject's two sessions into one row with a
   pattern badge (clean pair) and falls back to per-session rows otherwise.
   `ui-context.md` is an unfilled template (no table guidance), so this is
@@ -464,10 +619,13 @@ build pass.
 - Spec 04 references a "dark green accent token" for sidebar active
   state. Introduced `--accent-primary` (+ `--accent-primary-foreground`)
   in `globals.css` (mapped in `@theme inline` as
-  `--color-accent-primary*`). Used by the availability grid's blocked
-  cells (`bg-accent-primary`). Teacher sidebar still mirrors the Dean
-  sidebar styling — decide whether to migrate both sidebars to the
-  green accent. Registered here rather than invented.
+  `--color-accent-primary*`). The availability grid's blocked cells **no
+  longer use it** — spec 06 switched them to the red `destructive` token
+  (`--color-destructive` + new `--color-destructive-foreground`), so
+  `--accent-primary` is now used by nothing app-side except the sidebar
+  styling decision below. Teacher sidebar still mirrors the Dean sidebar
+  styling — decide whether to migrate both sidebars to the green accent.
+  Registered here rather than invented.
 - `/teacher/schedule` ("My Schedule") is a placeholder page with a real
   schedule source now available (`schedules` table, `by_teacherId`
   index) — building the read-only teacher view is the next unit.
@@ -529,14 +687,15 @@ build pass.
   Skeleton-based loading/empty/error states.
 - Availability is stored as one doc per teacher (`availability` table,
   indexed by Clerk `userId`); `blockedSlots` is the full set of
-  `"<dayIndex>-<timeIndex>"` keys. Grid edits are kept as local draft
-  state; **Save** writes the whole array (upsert: insert or patch) and
-  **Reset** reverts to the last saved set — an atomic write avoids many
-  small per-cell document churn.
+  `"<dayPattern>-<timeIndex>"` keys (`MW-0`, `TTh-11`). Grid edits are kept
+  as local draft state; **Save** writes the whole array (upsert: insert or
+  patch) and **Reset** reverts to the last saved set — an atomic write avoids
+  many small per-cell document churn.
 - `getMine`/`setMine` gate on the teacher role (`roleOf`). `getMine`
   returns `{ ok: true, data: [] }` for non-teachers rather than throwing
   (mirrors `rooms.listAll`); `setMine` throws `Unauthorized` and also
-  rejects any slot key outside the 6 days × 12 slots (7:30 AM–7:30 PM) bounds.
+  rejects any slot key outside the 2 patterns × 12 slots (7:30 AM–7:30 PM)
+  bounds, parsed via the shared `parseAvailabilityPatternKey`.
 - Sidebar is now generic: `components/shared/AppSidebar.tsx` takes a
   `groups` prop; `DeanSidebar` and `TeacherSidebar` are thin wrappers
   supplying their own nav configs from `APP_ROUTES` (no raw path
@@ -571,25 +730,50 @@ build pass.
   and rooms all gate on `roleOf`/`isDean` (Dean) or teacher role,
   including the `generate` action (throws `Unauthorized` for anonymous and
   non-Dean callers).
-- Day patterns are a closed vocabulary on the subject (`dayPattern: "MW" |
-  "TTh"`), single-sourced in `constants/dayPatterns.ts` including the day
-  indexes (`MW = [0, 2]`, `TTh = [1, 3]`) on the shared Mon=0…Sat=5 grid.
+- Day patterns are a closed vocabulary (`dayPattern: "MW" | "TTh"`),
+  single-sourced in `constants/dayPatterns.ts` including the day indexes
+  (`MW = [0, 2]`, `TTh = [1, 3]`) on the shared Mon=0…Sat=5 grid.
   That file has **no imports** so the Convex-side compiler (which can't
   resolve `@/`) can consume it; the scheduling engine imports it
-  relatively.
-- The day is part of the input, not a CSP choice: a subject's two sessions
-  are a **linked pair** — same time + same room on both pattern days. The
-  CSP therefore solves only the time, and it treats the pair as one atomic
-  placement (place/unplace both days together); candidate times require
-  the teacher to be free on *both* days. This keeps the constraint model
-  small and the output readable on the existing Mon-Sat grid.
+  relatively. The pattern is an **algorithm output** — `PlacedSession` and
+  `schedules` rows carry it; the subject no longer stores it.
+- The day pattern is now a CSP choice: `expandSubjectsIntoSessions` builds a
+  per-subject domain with one **linked pair** option per pattern (same time +
+  same room on both pattern days — MW option first, then TTh). The pair
+  stays atomic (place/unplace both days together; candidates require the
+  teacher free on *both* days), but the CSP now also picks *which* pattern,
+  preferring MW and falling back to TTh when MW is fully blocked. A subject
+  is infeasible only when both options have zero candidates.
+- **Availability is pattern-level, not day-level** (spec 06): the teacher
+  blocks time once per day-pair. The grid/UI has 2 columns (MW, TTh), the
+  Convex docs store `"<pattern>-<slot>"` keys but keep the same
+  `availability` table shape, and the engine's `SchedulingAvailability`
+  carries `blockedByPattern`, which `blockedByDayFor` fans out to both days
+  of each pair. Both days of a pair always carry identical blocks, so a
+  Mon-vs-Wed (or Tue-vs-Thu) availability mismatch is **structurally
+  impossible** — the CSP's `no-shared-teacher-window` cause can only fire
+  from per-day placed-session differences or a fully-blocked pattern now.
+- **Blocked/unavailable cells use the red `destructive` token**, not the
+  green accent (`bg-destructive` + `text-destructive-foreground`, with a new
+  `--destructive-foreground` var in both themes). Rationale: "unavailable" is
+  the destructive semantic and reads clearly as "the scheduler will avoid
+  this"; the green `--accent-primary` accent stays for sidebar active states.
 - The GA chromosome is a permutation of subject-pair units, so crossover /
   mutation can never break a day-pair; the old per-subject day-spread
   penalty was dropped because the spread is now fixed by the pattern.
+  The GA now locks in the CSP's choice: each unit adopts the seed
+  solution's pattern for that subject (domain option match, first as
+  fallback), so decode output always matches what the CSP selected.
 - Schema-evolution playbook (reused from spec 03): to migrate a field
   live, relax the schema (`v.optional`), deploy + run the idempotent
   internal backfill mutation, then restore the strict schema and re-push.
-  This unit ran `backfillSubjectDayPatterns` (3 docs) inside that window.
+  This CLI (Convex 1.46) has **no `schema:push --relax`**, so the window is
+  expressed directly in `convex/schema.ts` (make the changed columns
+  optional, push, migrate, then finalize and push again). This unit ran
+  `backfillSubjectRemoveDayPattern` (3 subjects) and
+  `backfillScheduleDayPatterns` (6 existing schedule rows) inside that
+  window; earlier units ran `backfillSubjectDayPatterns` (3 docs,
+  since removed) and `backfillAvailabilityDayPairs` (1 doc).
 - The schedule table collapses a clean pair into one row per subject with a
   "Schedule Pattern" badge + human label; a non-clean pair (shouldn't
   happen via `generate`) falls back to per-session rows.
@@ -609,8 +793,32 @@ build pass.
   + Teacher sidebar)
 - Spec: `context/spec/05-teacher-generate-sched.md` (Generate Schedule —
   CSP engine wired via Convex action; GA built, not wired)
+- Spec: `context/spec/06-teacher-availability-fix.md` (Teacher Availability
+  by Day-Pair — MW/TTh grid, pattern-based availability model, red blocked
+  cells)
 - Unit: Fixed Day-Pair Scheduling (MW / TTh) — extended spec 05's engine
   from `meetingsPerWeek` to linked `dayPattern` pairs (see Completed)
+- Unit: Teacher Availability by Day-Pair (MW / TTh) — spec 06; ran
+  `npx convex run 'migrations:backfillAvailabilityDayPairs'` → converted 1
+  legacy per-day availability doc (union semantics); a second run returns 0.
+  No schema relaxation needed (the `availability` doc shape is unchanged).
+- Unit: The Algorithm Chooses the Day Pattern (MW / TTh) — see Completed.
+  Dev migration ran in a schema window (no `schema:push --relax` in this
+  CLI): made `dayPattern` optional on both `subjects` and `schedules`, pushed
+  with `npx convex dev --once` (also pushed the engine + regen'd `_generated`
+  with the code), ran `npx convex run 'migrations:backfillSubjectRemoveDayPattern'`
+  (cleaned 3) and `npx convex run 'migrations:backfillScheduleDayPatterns'`
+  (backfilled 6 — all MW, consistent with their day indexes 0,2), then
+  reverted the schema to final and pushed again. Verified with
+  `npx convex data subjects` / `npx convex data schedules` that subjects have
+  no `dayPattern` and all schedule rows do. Note: with
+  `CONVEX_DEPLOYMENT` set, `npx convex deploy` targets the project's default
+  *production* deployment — dev pushes must go through `convex dev --once`.
 - PowerShell 5.1 caveat: to pass double quotes through `npx convex run
   --inline-query`, write the inner strings with doubled single quotes
   (`query(''rooms'')`), since PS otherwise strips `"` from native args.
+  Note: the `--inline-query` sandbox forms touched this session
+  (`(q) => q.query(...)`, `query(...).collect()`, `(ctx) => ctx.db...`)
+  failed server-side in this Convex version, so migrations and data checks
+  were verified via their `{ cleaned }` / `{ backfilled }` results +
+  `convex data` instead.

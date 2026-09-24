@@ -20,7 +20,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ROOM_TYPE_LABELS } from "@/constants/rooms";
-import { DAY_PATTERNS } from "@/constants/dayPatterns";
 import { useSubjects } from "@/hooks/useSubjects";
 import type { SubjectFormValues, SubjectListItem } from "@/types/subjects";
 
@@ -55,9 +54,7 @@ export function SubjectManagement() {
         subject.name.toLowerCase().includes(query) ||
         subject.teacherName.toLowerCase().includes(query) ||
         subject.roomName.toLowerCase().includes(query) ||
-        ROOM_TYPE_LABELS[subject.roomType].toLowerCase().includes(query) ||
-        subject.dayPattern.toLowerCase().includes(query) ||
-        DAY_PATTERNS[subject.dayPattern].join(" ").toLowerCase().includes(query),
+        ROOM_TYPE_LABELS[subject.roomType].toLowerCase().includes(query),
     );
   }, [subjects, search]);
 
@@ -82,7 +79,6 @@ export function SubjectManagement() {
               <TableHead className="w-44">Subject</TableHead>
               <TableHead>Category</TableHead>
               <TableHead>Duration</TableHead>
-              <TableHead>Schedule Pattern</TableHead>
               <TableHead>Teacher</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -95,9 +91,6 @@ export function SubjectManagement() {
                 </TableCell>
                 <TableCell>
                   <Skeleton className="h-5 w-16" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-12" />
                 </TableCell>
                 <TableCell>
                   <Skeleton className="h-4 w-12" />
@@ -157,7 +150,6 @@ export function SubjectManagement() {
             <TableHead className="w-44">Subject</TableHead>
             <TableHead>Category</TableHead>
             <TableHead>Duration</TableHead>
-            <TableHead>Schedule Pattern</TableHead>
             <TableHead>Teacher</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
@@ -178,9 +170,6 @@ export function SubjectManagement() {
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {subject.durationMinutes} min
-              </TableCell>
-              <TableCell>
-                <Badge variant="secondary">{subject.dayPattern}</Badge>
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {subject.teacherName}

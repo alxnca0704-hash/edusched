@@ -1,9 +1,13 @@
-import { DAY_PATTERN_DAY_INDEXES } from "../../constants/dayPatterns";
+import {
+  DAY_PATTERN_DAY_INDEXES,
+  DAY_PATTERN_OPTIONS,
+} from "../../constants/dayPatterns";
 import type {
   CspInfeasibleReason,
   CspResult,
   InfeasibilityReason,
   PlacedSession,
+  SchedulingDayPattern,
   SchedulingInput,
   SchedulingSubject,
 } from "./types";
@@ -18,8 +22,14 @@ export interface TimeOption {
 export interface SubjectUnit {
   unitKey: string;
   subject: SchedulingSubject;
+  dayPattern: SchedulingDayPattern;
   days: readonly number[];
   candidates: readonly TimeOption[];
+}
+
+export interface SubjectDomain {
+  subject: SchedulingSubject;
+  options: readonly SubjectUnit[];
 }
 
 const MAX_ATTEMPTS = 200_000;
@@ -174,13 +184,6 @@ export function validateSchedulingInput(
   }
 
   for (const subject of input.subjects) {
-    const patternDays = DAY_PATTERN_DAY_INDEXES[subject.dayPattern];
-    if (!patternDays || patternDays.length !== 2) {
-      return {
-        code: "invalid-pattern",
-        message: `"${subject.name}" has an unknown day pattern, expected MW or TTh.`,
-      };
-    }
     if (
       subject.durationMinutes <= 0 ||
       subject.durationMinutes % slotDuration !== 0
@@ -195,25 +198,68 @@ export function validateSchedulingInput(
   return null;
 }
 
+function unitCandidatesFor(
+  subject: SchedulingSubject,
+  dayPattern: SchedulingDayPattern,
+  input: SchedulingInput,
+  slotDuration: number,
+): readonly TimeOption[] {
+  const patternDays = DAY_PATTERN_DAY_INDEXES[dayPattern];
+  const meetingsPerSlot = subject.durationMinutes / slotDuration;
+  const blocked = blockedByDayFor(subject.teacherId, input.availability);
+  const candidates: TimeOption[] = [];
+
+  for (
+    let start = 0;
+    start + meetingsPerSlot <= input.timeSlots.length;
+    start++
+  ) {
+    const covered = input.timeSlots.slice(start, start + meetingsPerSlot);
+    const teacherUnavailableOnAnyPatternDay = covered.some((slot) =>
+      patternDays.some(
+        (dayIndex) => blocked.get(dayIndex)?.has(slot.index) ?? false,
+      ),
+    );
+    if (teacherUnavailableOnAnyPatternDay) {
+      continue;
+    }
+    candidates.push({
+      startMinutes: covered[0].startMinutes,
+      endMinutes: covered[covered.length - 1].endMinutes,
+    });
+  }
+
+  return candidates;
+}
+
+/**
+ * Splits each subject into a domain holding one unit per day pattern (MW
+ * first, then TTh). Each unit carries its own candidate start times, so a
+ * subject with both patterns free has one combined domain of up to twice the
+ * size a single pattern would allow and the search simply picks whichever
+ * pattern+time fits first.
+ *
+ * A subject is only infeasible when BOTH patterns fail (no candidates at
+ * all), reported as a single `InfeasibilityReason` whose `patterns` array
+ * explains each pattern separately.
+ */
 export function expandSubjectsIntoSessions(input: SchedulingInput): {
-  units: SubjectUnit[];
+  domains: SubjectDomain[];
   reasons: InfeasibilityReason[];
   reason: CspInfeasibleReason | null;
 } {
   const slotDuration = slotDurationOf(input.timeSlots);
-  const units: SubjectUnit[] = [];
+  const domains: SubjectDomain[] = [];
   const reasons: InfeasibilityReason[] = [];
 
   for (const subject of input.subjects) {
-    const patternDays = DAY_PATTERN_DAY_INDEXES[subject.dayPattern] ?? [];
-
     const roomMatches = input.rooms.some(
       (room) =>
         room.id === subject.roomId && room.type === subject.requiredRoomType,
     );
     if (!roomMatches) {
       return {
-        units: [],
+        domains: [],
         reasons: [],
         reason: {
           code: "no-matching-room",
@@ -222,47 +268,44 @@ export function expandSubjectsIntoSessions(input: SchedulingInput): {
       };
     }
 
-    const meetingsPerSlot = subject.durationMinutes / slotDuration;
-    const blocked = blockedByDayFor(subject.teacherId, input.availability);
-    const candidates: TimeOption[] = [];
-
-    for (let start = 0; start + meetingsPerSlot <= input.timeSlots.length; start++) {
-      const covered = input.timeSlots.slice(start, start + meetingsPerSlot);
-      const teacherUnavailableOnAnyPatternDay = covered.some((slot) =>
-        patternDays.some(
-          (dayIndex) => blocked.get(dayIndex)?.has(slot.index) ?? false,
-        ),
+    const options: SubjectUnit[] = [];
+    for (const dayPattern of DAY_PATTERN_OPTIONS) {
+      const candidates = unitCandidatesFor(
+        subject,
+        dayPattern,
+        input,
+        slotDuration,
       );
-      if (teacherUnavailableOnAnyPatternDay) {
+      if (candidates.length === 0) {
         continue;
       }
-      candidates.push({
-        startMinutes: covered[0].startMinutes,
-        endMinutes: covered[covered.length - 1].endMinutes,
+      options.push({
+        unitKey: `${subject.id}-${dayPattern}`,
+        subject,
+        dayPattern,
+        days: DAY_PATTERN_DAY_INDEXES[dayPattern],
+        candidates,
       });
     }
 
-    if (candidates.length === 0) {
+    if (options.length === 0) {
       reasons.push(explainInfeasibility(subject, input, []));
       continue;
     }
 
-    units.push({
-      unitKey: subject.id,
-      subject,
-      days: patternDays,
-      candidates,
-    });
+    domains.push({ subject, options });
   }
 
-  return { units, reasons, reason: null };
+  return { domains, reasons, reason: null };
 }
 
 function toPlacedSessions(placement: SubjectPlacement): PlacedSession[] {
-  return placement.unit.days.map((dayIndex) => ({
-    subjectId: placement.unit.subject.id,
-    teacherId: placement.unit.subject.teacherId,
-    roomId: placement.unit.subject.roomId,
+  const unit = placement.unit;
+  return unit.days.map((dayIndex) => ({
+    subjectId: unit.subject.id,
+    teacherId: unit.subject.teacherId,
+    roomId: unit.subject.roomId,
+    dayPattern: unit.dayPattern,
     dayIndex,
     startMinutes: placement.option.startMinutes,
     endMinutes: placement.option.endMinutes,
@@ -303,6 +346,7 @@ export function greedyDecode(
         subjectId: unit.subject.id,
         teacherId: unit.subject.teacherId,
         roomId: unit.subject.roomId,
+        dayPattern: unit.dayPattern,
         dayIndex,
         startMinutes: option.startMinutes,
         endMinutes: option.endMinutes,
@@ -313,59 +357,79 @@ export function greedyDecode(
   return result;
 }
 
+function firstPlaceableOption(
+  domain: SubjectDomain,
+  tracker: OccupancyTracker,
+): SubjectPlacement | null {
+  for (const unit of domain.options) {
+    for (const option of unit.candidates) {
+      const conflicts = unit.days.some((dayIndex) =>
+        tracker.conflicts(
+          unit.subject.teacherId,
+          unit.subject.roomId,
+          dayIndex,
+          option.startMinutes,
+          option.endMinutes,
+        ),
+      );
+      if (!conflicts) {
+        return { unit, option };
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Greedy placement pass used to explain an otherwise-inscrutable backtracking
  * failure. The CSP search stops as soon as it finds a valid schedule, so when
  * it exhausts there is no "near-complete" partial assignment to inspect; a
  * greedy attempt in the same ordering surfaces the first subject(s) that
- * collide with the rest and assigns a per-subject cause over that partial
- * state.
+ * collide with the rest and assigns a per-subject, per-pattern cause over
+ * that partial state.
  */
 export function diagnoseFailedPlacement(
-  orderedUnits: readonly SubjectUnit[],
+  orderedDomains: readonly SubjectDomain[],
   input: SchedulingInput,
 ): InfeasibilityReason[] {
   const tracker = new OccupancyTracker();
   const placed: PlacedSession[] = [];
   const reasons: InfeasibilityReason[] = [];
 
-  for (const unit of orderedUnits) {
-    const option = unit.candidates.find(
-      (candidate) =>
-        !unit.days.some((dayIndex) =>
-          tracker.conflicts(
-            unit.subject.teacherId,
-            unit.subject.roomId,
-            dayIndex,
-            candidate.startMinutes,
-            candidate.endMinutes,
-          ),
-        ),
-    );
-    if (option) {
-      for (const dayIndex of unit.days) {
+  for (const domain of orderedDomains) {
+    const placement = firstPlaceableOption(domain, tracker);
+    if (placement) {
+      for (const dayIndex of placement.unit.days) {
         tracker.add(
-          unit.subject.teacherId,
-          unit.subject.roomId,
+          placement.unit.subject.teacherId,
+          placement.unit.subject.roomId,
           dayIndex,
-          option.startMinutes,
-          option.endMinutes,
+          placement.option.startMinutes,
+          placement.option.endMinutes,
         );
         placed.push({
-          subjectId: unit.subject.id,
-          teacherId: unit.subject.teacherId,
-          roomId: unit.subject.roomId,
+          subjectId: placement.unit.subject.id,
+          teacherId: placement.unit.subject.teacherId,
+          roomId: placement.unit.subject.roomId,
+          dayPattern: placement.unit.dayPattern,
           dayIndex,
-          startMinutes: option.startMinutes,
-          endMinutes: option.endMinutes,
+          startMinutes: placement.option.startMinutes,
+          endMinutes: placement.option.endMinutes,
         });
       }
       continue;
     }
-    reasons.push(explainInfeasibility(unit.subject, input, placed));
+    reasons.push(explainInfeasibility(domain.subject, input, placed));
   }
 
   return reasons;
+}
+
+function domainCandidateCount(domain: SubjectDomain): number {
+  return domain.options.reduce(
+    (total, option) => total + option.candidates.length,
+    0,
+  );
 }
 
 export function runCSP(input: SchedulingInput): CspResult {
@@ -381,22 +445,22 @@ export function runCSP(input: SchedulingInput): CspResult {
   if (built.reasons.length > 0) {
     return { ok: false, reasons: built.reasons };
   }
-  if (built.units.length === 0) {
+  if (built.domains.length === 0) {
     return {
       ok: false,
       reason: { code: "no-subjects", message: "No subjects to schedule." },
     };
   }
 
-  const orderedUnits = [...built.units].sort(
+  const orderedDomains = [...built.domains].sort(
     (a, b) =>
-      a.candidates.length - b.candidates.length ||
-      a.unitKey.localeCompare(b.unitKey),
+      domainCandidateCount(a) - domainCandidateCount(b) ||
+      a.subject.id.localeCompare(b.subject.id),
   );
 
   const tracker = new OccupancyTracker();
   const assignments: (SubjectPlacement | null)[] = new Array(
-    orderedUnits.length,
+    orderedDomains.length,
   ).fill(null);
   let attempts = 0;
 
@@ -441,22 +505,24 @@ export function runCSP(input: SchedulingInput): CspResult {
     if (attempts > MAX_ATTEMPTS) {
       return false;
     }
-    if (index === orderedUnits.length) {
+    if (index === orderedDomains.length) {
       return true;
     }
 
-    const unit = orderedUnits[index];
-    for (const option of unit.candidates) {
-      if (unitConflicts(unit, option)) {
-        continue;
+    const domain = orderedDomains[index];
+    for (const unit of domain.options) {
+      for (const option of unit.candidates) {
+        if (unitConflicts(unit, option)) {
+          continue;
+        }
+        placeUnit(unit, option);
+        assignments[index] = { unit, option };
+        if (search(index + 1)) {
+          return true;
+        }
+        assignments[index] = null;
+        unplaceUnit(unit, option);
       }
-      placeUnit(unit, option);
-      assignments[index] = { unit, option };
-      if (search(index + 1)) {
-        return true;
-      }
-      assignments[index] = null;
-      unplaceUnit(unit, option);
     }
     return false;
   }
@@ -464,7 +530,7 @@ export function runCSP(input: SchedulingInput): CspResult {
   if (!search(0)) {
     return {
       ok: false,
-      reasons: diagnoseFailedPlacement(orderedUnits, input),
+      reasons: diagnoseFailedPlacement(orderedDomains, input),
     };
   }
 

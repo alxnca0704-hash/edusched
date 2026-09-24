@@ -8,7 +8,7 @@
 | UI         | shadcn/ui + Tailwind CSS              | shadcn/ui for components (Table, Form, Dialog, Select, etc.), Tailwind for layout, spacing, and responsiveness |
 | Auth       | Clerk                                 | Handles sign-in and identity for Dean and Teacher accounts (manually seeded, no public sign-up) |
 | Database   | Convex                                | Stores and syncs Rooms, Subjects, Availability, and generated Schedules in real time |
-| Scheduling | Convex action (`convex/schedule.ts`) + pure TS engine in `convex/scheduling/` | The `generate` action reads Rooms, Subjects, and Availability, runs the CSP (`csp.ts`), and writes the result back to Convex. The GA (`ga.ts`) is implemented but not yet wired into the live flow (soft constraints are out of scope). Each subject meets twice a week as a **linked pair** on its `dayPattern` (`MW` = Mon & Wed, `TTh` = Tue & Thu); the CSP only chooses the time, applied identically on both pattern days. |
+| Scheduling | Convex action (`convex/schedule.ts`) + pure TS engine in `convex/scheduling/` | The `generate` action reads Rooms, Subjects, and Availability, runs the CSP (`csp.ts`), and writes the result back to Convex. The GA (`ga.ts`) is implemented but not yet wired into the live flow (soft constraints are out of scope). Each subject meets twice a week as a **linked pair** (same time + room on both pattern days). The CSP now also chooses the pattern itself — MW by default, TTh fallback — and records the winner on each generated `schedules` row (`dayPattern`: `MW` = Mon & Wed, `TTh` = Tue & Thu). |
 
 ## System Boundaries
 
@@ -24,7 +24,7 @@
 
 ## Storage Model
 
-- **Convex (database)**: All application data — Rooms, Subjects, Teacher Availability, and generated Schedule records. Each record that belongs to a Teacher is linked via their Clerk `userId`. This is the single source of truth; the UI subscribes to Convex queries for live updates instead of manual refetching. Generated schedules are stored as one `schedules` row per placed session (denormalized subject/teacher/room names at generation time, indexed by teacher id for the teacher view); regenerating replaces all rows atomically. Subjects carry a required `dayPattern` (`"MW" | "TTh"`) — the two days their two linked sessions land on; the pattern vocabulary/indexes live in `constants/dayPatterns.ts`.
+- **Convex (database)**: All application data — Rooms, Subjects, Teacher Availability, and generated Schedule records. Each record that belongs to a Teacher is linked via their Clerk `userId`. This is the single source of truth; the UI subscribes to Convex queries for live updates instead of manual refetching. Generated schedules are stored as one `schedules` row per placed session (denormalized subject/teacher/room names at generation time, indexed by teacher id for the teacher view); regenerating replaces all rows atomically. Each `schedules` row carries the algorithm-chosen `dayPattern` (`"MW" | "TTh"`) — the two days that session's linked pair lands on; the pattern vocabulary/indexes live in `constants/dayPatterns.ts`. Subjects do NOT carry a `dayPattern`; pattern choice is an algorithm output, not a Dean input.
 - **Clerk (identity store)**: User identity only — email, name, password, and role metadata (`dean` or `teacher`). Clerk does not store scheduling data; it is referenced by `userId` from Convex records.
 - **No separate blob/file storage** at this stage — no file uploads or generated documents are part of the MVP scope.
 

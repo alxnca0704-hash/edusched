@@ -1,7 +1,9 @@
 import { runCSP } from "../convex/scheduling/csp";
+import { freeWindowsForDay } from "../convex/scheduling/cspDiagnostics";
 import { runGA } from "../convex/scheduling/ga";
 import { validateSolution } from "../convex/scheduling/validate";
 import type {
+  PatternInfeasibility,
   PlacedSession,
   SchedulingAvailability,
   SchedulingDay,
@@ -10,6 +12,7 @@ import type {
   SchedulingSubject,
   SchedulingTimeSlot,
 } from "../convex/scheduling/types";
+import { DAY_PATTERN_DAY_INDEXES } from "../constants/dayPatterns";
 import {
   AVAILABILITY_DAYS,
   AVAILABILITY_TIME_SLOTS,
@@ -41,7 +44,6 @@ const SUBJECTS: SchedulingSubject[] = [
     roomId: "room-lecture-1",
     requiredRoomType: "lecture",
     durationMinutes: 60,
-    dayPattern: "MW",
   },
   {
     id: "s2",
@@ -50,7 +52,6 @@ const SUBJECTS: SchedulingSubject[] = [
     roomId: "room-lecture-2",
     requiredRoomType: "lecture",
     durationMinutes: 60,
-    dayPattern: "TTh",
   },
   {
     id: "s3",
@@ -59,18 +60,17 @@ const SUBJECTS: SchedulingSubject[] = [
     roomId: "room-lab-1",
     requiredRoomType: "lab",
     durationMinutes: 60,
-    dayPattern: "TTh",
   },
 ];
 
 const AVAILABILITY: SchedulingAvailability[] = [
   {
     teacherId: "t1",
-    blockedByDay: [{ dayIndex: 2, slotIndexes: [0, 1, 2, 3, 4, 5, 6, 7, 8] }],
+    blockedByPattern: [{ dayPattern: "MW", slotIndexes: [0, 1, 2, 3, 4, 5, 6, 7, 8] }],
   },
   {
     teacherId: "t2",
-    blockedByDay: [{ dayIndex: 1, slotIndexes: [0] }],
+    blockedByPattern: [{ dayPattern: "TTh", slotIndexes: [0] }],
   },
 ];
 
@@ -92,6 +92,14 @@ function sessionsBySubject(
     list.push(placement);
   }
   return bySubject;
+}
+
+function patternDaysForSubject(
+  solution: readonly PlacedSession[],
+  subjectId: string,
+): number[] {
+  const pattern = sessionsBySubject(solution).get(subjectId)?.[0]?.dayPattern;
+  return pattern ? [...DAY_PATTERN_DAY_INDEXES[pattern]] : [];
 }
 
 function assertPatternPair(
@@ -131,22 +139,22 @@ function allBlockedAvailability(teachers: readonly string[]): SchedulingAvailabi
   const allSlots = AVAILABILITY_TIME_SLOTS.map((slot) => slot.index);
   return teachers.map((teacherId) => ({
     teacherId,
-    blockedByDay: DAYS.map((day) => ({
-      dayIndex: day.index,
-      slotIndexes: allSlots,
-    })),
+    blockedByPattern: [
+      { dayPattern: "MW", slotIndexes: allSlots },
+      { dayPattern: "TTh", slotIndexes: allSlots },
+    ],
   }));
 }
 
-function expectSingleReason(
+function hasPatternCause(
   result: ReturnType<typeof runCSP>,
-  cause: "no-shared-teacher-window" | "no-room-available" | "unknown",
+  predicate: (pattern: PatternInfeasibility) => boolean,
 ): boolean {
   return (
     !result.ok &&
     "reasons" in result &&
     result.reasons.length > 0 &&
-    result.reasons.some((reason) => reason.cause === cause)
+    result.reasons.some((reason) => reason.patterns.some(predicate))
   );
 }
 
@@ -157,7 +165,9 @@ function main() {
   check(cspResult.ok, "runCSP returns ok for the feasible input");
   if (!cspResult.ok) {
     if ("reasons" in cspResult) {
-      cspResult.reasons.forEach((reason) => console.error(`  - ${reason.message}`));
+      cspResult.reasons.forEach((reason) =>
+        reason.patterns.forEach((pattern) => console.error(`  - ${pattern.message}`)),
+      );
     } else {
       console.error(`  reason: ${cspResult.reason.message}`);
     }
@@ -173,12 +183,16 @@ function main() {
       validation.violations.forEach((violation) => console.error(`  - ${violation}`));
     }
 
-    console.log("CSP: fixed day-pairs");
+    console.log("CSP: algorithm picks the pattern, MW-first by default");
     for (const subject of SUBJECTS) {
-      const expectedDays = subject.dayPattern === "MW" ? [0, 2] : [1, 3];
+      const sessions = sessionsBySubject(cspResult.solution).get(subject.id) ?? [];
       check(
-        assertPatternPair(cspResult.solution, subject, expectedDays),
-        `"${subject.name}" (${subject.dayPattern}) lands on days ${expectedDays.join(",")} at the same time in the same room`,
+        sessions.every((session) => session.dayPattern === "MW"),
+        `"${subject.name}" is placed on MW (algorithm default, not Dean-chosen)`,
+      );
+      check(
+        assertPatternPair(cspResult.solution, subject, [0, 2]),
+        `"${subject.name}" lands on days 0,2 at the same time in the same room`,
       );
     }
   }
@@ -191,7 +205,7 @@ function main() {
     );
     check(
       anyAtFreeSlot,
-      "Math 101 uses 4:30 PM (slot 9) on both days because Wed slots 0-8 are blocked for t1",
+      "Math 101 uses 4:30 PM (slot 9) on both days because MW slots 0-8 are blocked for t1",
     );
   }
 
@@ -209,20 +223,49 @@ function main() {
     check(gaResult.length > 0, "GA returns a non-empty schedule");
     check(
       SUBJECTS.every((subject) =>
-        assertPatternPair(
-          gaResult,
-          subject,
-          subject.dayPattern === "MW" ? [0, 2] : [1, 3],
-        ),
+        assertPatternPair(gaResult, subject, patternDaysForSubject(gaResult, subject.id)),
       ),
-      "GA keeps each subject's day-pair (same time, same room) intact",
+      "GA keeps the seed-chosen pattern's day-pair (same time, same room) intact",
+    );
+  }
+
+  console.log("CSP: picks TTh when MW is fully blocked but TTh is free");
+  const tthOnlySubjects: SchedulingSubject[] = [
+    {
+      id: "s-tth",
+      name: "Tuesday-Only 101",
+      teacherId: "t-tth",
+      roomId: "room-lecture-1",
+      requiredRoomType: "lecture",
+      durationMinutes: 60,
+    },
+  ];
+  const tthAvailability: SchedulingAvailability[] = [
+    {
+      teacherId: "t-tth",
+      blockedByPattern: [
+        { dayPattern: "MW", slotIndexes: [...AVAILABILITY_TIME_SLOTS.keys()] },
+      ],
+    },
+  ];
+  const tthResult = runCSP(buildInput(tthOnlySubjects, ROOMS, tthAvailability));
+  check(tthResult.ok, "MW-fully-blocked subject still schedules (via TTh)");
+  if (tthResult.ok) {
+    const sessions = sessionsBySubject(tthResult.solution).get("s-tth") ?? [];
+    check(
+      sessions.every((session) => session.dayPattern === "TTh"),
+      "the algorithm falls back to TTh, choosing the days itself",
+    );
+    check(
+      assertPatternPair(tthResult.solution, tthOnlySubjects[0], [1, 3]),
+      "Wednesday-blocked subject lands on the TTh pair at the same time in the same room",
     );
   }
 
   console.log("CSP: room overflow reports a per-subject room-caused reason");
   const overbookedRooms: SchedulingRoom[] = [ROOMS[0]];
   const capacityOverflowSubjects: SchedulingSubject[] = Array.from(
-    { length: 13 },
+    { length: 25 },
     (_, index) => ({
       id: `s-overflow-${index}`,
       name: `Overflow Subject ${index + 1}`,
@@ -230,14 +273,13 @@ function main() {
       roomId: "room-lecture-1",
       requiredRoomType: "lecture",
       durationMinutes: 60,
-      dayPattern: "TTh",
     }),
   );
   const infeasible = buildInput(capacityOverflowSubjects, overbookedRooms, []);
   const infeasibleResult = runCSP(infeasible);
   check(
-    expectSingleReason(infeasibleResult, "no-room-available"),
-    "13 TTh subjects in one room report a no-room-available reason",
+    hasPatternCause(infeasibleResult, (pattern) => pattern.cause === "no-room-available"),
+    "25 one-room subjects (12 MW + 12 TTh + 1) report a no-room-available reason",
   );
 
   console.log("CSP: validation reasons");
@@ -250,20 +292,7 @@ function main() {
     "non-multiple-of-60 duration is rejected with invalid-duration",
   );
 
-  const bogusPatternInput = buildInput([
-    {
-      ...SUBJECTS[0],
-      dayPattern: "M" as unknown as "MW",
-      name: "Unknown pattern subject",
-    },
-  ]);
-  const patternResult = runCSP(bogusPatternInput);
-  check(
-    !patternResult.ok && "reason" in patternResult && patternResult.reason.code === "invalid-pattern",
-    "unknown day pattern is rejected with invalid-pattern",
-  );
-
-  console.log("CSP: mirrors current dev data (SE 101, 3-hr lab MW, no availability)");
+  console.log("CSP: mirrors current dev data (SE 101, 3-hr lab, no availability)");
   const labOnlyRooms: SchedulingRoom[] = [
     { id: "room-it-lab-1", name: "IT Lab 1", type: "lab" },
   ];
@@ -275,11 +304,10 @@ function main() {
       roomId: "room-it-lab-1",
       requiredRoomType: "lab",
       durationMinutes: 180,
-      dayPattern: "MW",
     },
   ];
   const se101Result = runCSP(buildInput(se101Subjects, labOnlyRooms, []));
-  check(se101Result.ok, "CSP places the 3-hour lab subject");
+  check(se101Result.ok, "CSP places the 3-hour lab subject (no Dean-chosen pattern)");
   if (se101Result.ok) {
     const validation = validateSolution(
       buildInput(se101Subjects, labOnlyRooms, []),
@@ -301,7 +329,7 @@ function main() {
     );
   }
 
-  console.log("CSP: mirrors full dev seed (3 MW labs, one teacher, one room each)");
+  console.log("CSP: mirrors full dev seed (3 labs, one teacher, one room each)");
   const devRooms: SchedulingRoom[] = [
     { id: "room-it-lab-1", name: "IT Lab 1", type: "lab" },
     { id: "room-it-lab-2", name: "IT Lab 2", type: "lab" },
@@ -315,7 +343,6 @@ function main() {
       roomId: "room-it-lab-1",
       requiredRoomType: "lab",
       durationMinutes: 180,
-      dayPattern: "MW",
     },
     {
       id: "j9777da1b5ajbzsb4ffh9wc2pn8f1h3h",
@@ -324,7 +351,6 @@ function main() {
       roomId: "room-it-lab-2",
       requiredRoomType: "lab",
       durationMinutes: 120,
-      dayPattern: "MW",
     },
     {
       id: "j97c8degzgb88ywsfpck2ahatd8f00cw",
@@ -333,7 +359,6 @@ function main() {
       roomId: "room-it-lab-3",
       requiredRoomType: "lab",
       durationMinutes: 180,
-      dayPattern: "MW",
     },
   ];
   const devResult = runCSP(buildInput(devSubjects, devRooms, []));
@@ -355,7 +380,7 @@ function main() {
     }
   }
 
-  console.log("CSP: fully-blocked teachers yield per-subject teacher reasons");
+  console.log("CSP: fully-blocked teachers report both patterns for every subject");
   const noSlotsInput = buildInput(SUBJECTS, ROOMS, allBlockedAvailability(["t1", "t2"]));
   const noSlotsResult = runCSP(noSlotsInput);
   check(
@@ -363,59 +388,84 @@ function main() {
       "reasons" in noSlotsResult &&
       noSlotsResult.reasons.length === SUBJECTS.length &&
       noSlotsResult.reasons.every(
-        (reason) => reason.cause === "no-shared-teacher-window",
+        (reason) =>
+          reason.patterns.length === 2 &&
+          reason.patterns.every(
+            (pattern) => pattern.cause === "no-shared-teacher-window",
+          ),
       ),
-    "fully-blocked teachers report one no-shared-teacher-window reason per subject",
+    "fully-blocked teachers report one reason per subject, each explaining BOTH MW and TTh",
   );
+  if (!noSlotsResult.ok && "reasons" in noSlotsResult) {
+    const reason = noSlotsResult.reasons[0];
+    check(
+      reason.patterns.every(
+        (pattern) =>
+          pattern.day1FreeWindows.length === 0 &&
+          pattern.day2FreeWindows.length === 0,
+      ),
+      "both patterns list no free windows at all",
+    );
+    check(
+      reason.patterns.every((pattern) =>
+        pattern.message.includes("No matching 60-min start time"),
+      ),
+      "both patterns state no matching start time exists on the pair's days",
+    );
+  }
 
-  console.log("CSP: teacher free windows overlap on no start across both days");
-  const noSharedSubjects: SchedulingSubject[] = [
+  console.log("CSP: pattern availability applies identically to both days of the pair");
+  const patternAvailability: SchedulingAvailability[] = [
     {
-      id: "s-noshared",
-      name: "No Shared 101",
-      teacherId: "t-noshared",
+      teacherId: "t-pattern",
+      blockedByPattern: [{ dayPattern: "MW", slotIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] }],
+    },
+  ];
+  const patternMirrorSubjects: SchedulingSubject[] = [
+    {
+      id: "s-pattern",
+      name: "Pattern Mirror 101",
+      teacherId: "t-pattern",
       roomId: "room-lecture-1",
       requiredRoomType: "lecture",
       durationMinutes: 60,
-      dayPattern: "MW",
     },
   ];
-  const noSharedAvailability: SchedulingAvailability[] = [
-    {
-      teacherId: "t-noshared",
-      blockedByDay: [
-        { dayIndex: 0, slotIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
-        { dayIndex: 2, slotIndexes: [0, 1, 2, 3, 4, 5, 6, 7, 8] },
-      ],
-    },
-  ];
-  const noSharedResult = runCSP(
-    buildInput(noSharedSubjects, ROOMS, noSharedAvailability),
+  const patternMirrorInput = buildInput(
+    patternMirrorSubjects,
+    ROOMS,
+    patternAvailability,
+  );
+  const patternMirrorResult = runCSP(patternMirrorInput);
+  check(
+    patternMirrorResult.ok &&
+      patternMirrorResult.solution.every(
+        (placement) => placement.startMinutes === 450,
+      ),
+    "one MW block puts the pair at 7:30 AM on both Mon and Wed",
+  );
+  const windowsDay0 = freeWindowsForDay(
+    patternMirrorInput,
+    patternMirrorSubjects[0],
+    [],
+    0,
+  );
+  const windowsDay2 = freeWindowsForDay(
+    patternMirrorInput,
+    patternMirrorSubjects[0],
+    [],
+    2,
   );
   check(
-    expectSingleReason(noSharedResult, "no-shared-teacher-window"),
-    "no overlap across Mon & Wed reports no-shared-teacher-window",
+    windowsDay0.length === 1 &&
+      windowsDay0[0].start === 450 &&
+      windowsDay0[0].end === 510,
+    "Mon free window is 7:30 AM–8:30 AM (slot 0)",
   );
-  if (!noSharedResult.ok && "reasons" in noSharedResult) {
-    const reason = noSharedResult.reasons[0];
-    check(reason.subjectName === "No Shared 101", "reason names the failed subject");
-    check(
-      reason.day1FreeWindows.length === 1 &&
-        reason.day1FreeWindows[0].start === 450 &&
-        reason.day1FreeWindows[0].end === 510,
-      "Mon free window is 7:30 AM–8:30 AM",
-    );
-    check(
-      reason.day2FreeWindows.length === 1 &&
-        reason.day2FreeWindows[0].start === 990 &&
-        reason.day2FreeWindows[0].end === 1170,
-      "Wed free window is 4:30 PM–7:30 PM",
-    );
-    check(
-      reason.message.includes("No matching 60-min start time"),
-      "message states no matching start time exists on both days",
-    );
-  }
+  check(
+    JSON.stringify(windowsDay0) === JSON.stringify(windowsDay2),
+    "free windows are identical on Mon and Wed — a mismatch is structurally impossible",
+  );
 
   console.log("CSP: room-caused infeasibility is distinct from teacher-caused");
   const crowdedRooms: SchedulingRoom[] = [
@@ -429,7 +479,6 @@ function main() {
       roomId: "room-crowded",
       requiredRoomType: "lecture",
       durationMinutes: 60,
-      dayPattern: "MW",
     },
     {
       id: "b",
@@ -438,22 +487,21 @@ function main() {
       roomId: "room-crowded",
       requiredRoomType: "lecture",
       durationMinutes: 60,
-      dayPattern: "MW",
     },
   ];
   const crowdedAvailability: SchedulingAvailability[] = [
     {
       teacherId: "tA",
-      blockedByDay: [
-        { dayIndex: 0, slotIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
-        { dayIndex: 2, slotIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+      blockedByPattern: [
+        { dayPattern: "MW", slotIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+        { dayPattern: "TTh", slotIndexes: [...AVAILABILITY_TIME_SLOTS.keys()] },
       ],
     },
     {
       teacherId: "tB",
-      blockedByDay: [
-        { dayIndex: 0, slotIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
-        { dayIndex: 2, slotIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+      blockedByPattern: [
+        { dayPattern: "MW", slotIndexes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+        { dayPattern: "TTh", slotIndexes: [...AVAILABILITY_TIME_SLOTS.keys()] },
       ],
     },
   ];
@@ -461,21 +509,31 @@ function main() {
     buildInput(crowdedSubjects, crowdedRooms, crowdedAvailability),
   );
   check(
-    expectSingleReason(crowdedResult, "no-room-available"),
-    "teacher free on both days but room taken at every shared start reports no-room-available",
+    hasPatternCause(crowdedResult, (pattern) => pattern.cause === "no-room-available"),
+    "teacher free on one shared window but room taken reports no-room-available on MW",
+  );
+  check(
+    hasPatternCause(
+      crowdedResult,
+      (pattern) =>
+        pattern.dayPattern === "TTh" && pattern.cause === "no-shared-teacher-window",
+    ),
+    "TTh reports no-shared-teacher-window separately (fully blocked)",
   );
   if (!crowdedResult.ok && "reasons" in crowdedResult) {
     const reason = crowdedResult.reasons[0];
     check(reason.subjectName === "Beta 101", "room reason names the blocked subject");
+    const mwPattern = reason.patterns.find((pattern) => pattern.dayPattern === "MW");
     check(
-      reason.day1FreeWindows.length === 1 &&
-        reason.day2FreeWindows.length === 1 &&
-        reason.day1FreeWindows[0].start === 450 &&
-        reason.day2FreeWindows[0].start === 450,
-      "room reason still lists the teacher's free windows on both days",
+      mwPattern !== undefined &&
+        mwPattern.day1FreeWindows.length === 1 &&
+        mwPattern.day2FreeWindows.length === 1 &&
+        mwPattern.day1FreeWindows[0].start === 450 &&
+        mwPattern.day2FreeWindows[0].start === 450,
+      "room reason still lists the teacher's free windows on both MW days",
     );
     check(
-      reason.message.includes("occupied at every shared start"),
+      mwPattern !== undefined && mwPattern.message.includes("occupied at every shared start"),
       "room reason message names the root cause",
     );
   }

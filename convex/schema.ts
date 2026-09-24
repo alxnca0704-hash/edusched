@@ -20,7 +20,6 @@ export default defineSchema({
   subjects: defineTable({
     name: v.string(),
     durationMinutes: v.number(),
-    dayPattern: v.union(v.literal("MW"), v.literal("TTh")),
     roomId: v.id("rooms"),
     teacherId: v.string(),
     createdAt: v.number(),
@@ -40,6 +39,7 @@ export default defineSchema({
     roomId: v.id("rooms"),
     roomName: v.string(),
     roomType: v.union(v.literal("lecture"), v.literal("lab")),
+    dayPattern: v.union(v.literal("MW"), v.literal("TTh")),
     dayIndex: v.number(),
     startMinutes: v.number(),
     endMinutes: v.number(),

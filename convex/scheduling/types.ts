@@ -27,17 +27,16 @@ export interface SchedulingSubject {
   roomId: string;
   requiredRoomType: SchedulingRoomType;
   durationMinutes: number;
-  dayPattern: SchedulingDayPattern;
 }
 
-export interface BlockedDay {
-  dayIndex: number;
+export interface BlockedPattern {
+  dayPattern: SchedulingDayPattern;
   slotIndexes: readonly number[];
 }
 
 export interface SchedulingAvailability {
   teacherId: string;
-  blockedByDay: readonly BlockedDay[];
+  blockedByPattern: readonly BlockedPattern[];
 }
 
 export interface SchedulingInput {
@@ -52,6 +51,7 @@ export interface PlacedSession {
   subjectId: string;
   teacherId: string;
   roomId: string;
+  dayPattern: SchedulingDayPattern;
   dayIndex: number;
   startMinutes: number;
   endMinutes: number;
@@ -67,20 +67,23 @@ export type InfeasibilityCause =
   | "no-room-available"
   | "unknown";
 
-export interface InfeasibilityReason {
-  subjectName: string;
+export interface PatternInfeasibility {
   dayPattern: SchedulingDayPattern;
-  durationMinutes: number;
   day1FreeWindows: readonly FreeWindow[];
   day2FreeWindows: readonly FreeWindow[];
   cause: InfeasibilityCause;
   message: string;
 }
 
+export interface InfeasibilityReason {
+  subjectName: string;
+  durationMinutes: number;
+  patterns: readonly PatternInfeasibility[];
+}
+
 export type CspInfeasibleReason =
   | { code: "no-subjects"; message: string }
   | { code: "no-rooms"; message: string }
-  | { code: "invalid-pattern"; message: string }
   | { code: "invalid-duration"; message: string }
   | { code: "no-matching-room"; message: string };
 

@@ -6,7 +6,7 @@ import type { Id } from "./_generated/dataModel";
 import {
   AVAILABILITY_DAYS,
   AVAILABILITY_TIME_SLOTS,
-  parseAvailabilitySlotKey,
+  parseAvailabilityPatternKey,
 } from "../constants/availability";
 import { runCSP } from "./scheduling/csp";
 import { validateSolution } from "./scheduling/validate";
@@ -25,6 +25,7 @@ const sessionValidator = v.object({
   roomId: v.id("rooms"),
   roomName: v.string(),
   roomType: v.union(v.literal("lecture"), v.literal("lab")),
+  dayPattern: v.union(v.literal("MW"), v.literal("TTh")),
   dayIndex: v.number(),
   startMinutes: v.number(),
   endMinutes: v.number(),
@@ -129,7 +130,6 @@ interface SubjectRow {
   roomType: "lecture" | "lab";
   teacherName: string;
   durationMinutes: number;
-  dayPattern: "MW" | "TTh";
 }
 
 interface RoomRow {
@@ -147,22 +147,24 @@ function buildSchedulingInput(
 
   const normalizedAvailability: SchedulingAvailability[] = availability.map(
     (entry) => {
-      const slotsByDay = new Map<number, number[]>();
+      const slotsByPattern = new Map<"MW" | "TTh", number[]>();
       for (const key of entry.blockedSlots) {
-        const parsed = parseAvailabilitySlotKey(key);
+        const parsed = parseAvailabilityPatternKey(key);
         if (!parsed) {
           continue;
         }
-        const list = slotsByDay.get(parsed.dayIndex) ?? [];
-        slotsByDay.set(parsed.dayIndex, list);
+        const list = slotsByPattern.get(parsed.dayPattern) ?? [];
+        slotsByPattern.set(parsed.dayPattern, list);
         list.push(parsed.timeSlotIndex);
       }
       return {
         teacherId: entry.teacherId,
-        blockedByDay: [...slotsByDay.entries()].map(([dayIndex, slotIndexes]) => ({
-          dayIndex,
-          slotIndexes,
-        })),
+        blockedByPattern: [...slotsByPattern.entries()].map(
+          ([dayPattern, slotIndexes]) => ({
+            dayPattern,
+            slotIndexes,
+          }),
+        ),
       };
     },
   );
@@ -184,7 +186,6 @@ function buildSchedulingInput(
         roomId: subject.roomId,
         requiredRoomType: room?.type ?? subject.roomType,
         durationMinutes: subject.durationMinutes,
-        dayPattern: subject.dayPattern,
       };
     }),
     availability: normalizedAvailability,
@@ -230,10 +231,11 @@ export const generate = action({
       if ("reason" in result) {
         return { ok: false as const, error: result.reason.message };
       }
+      const single = result.reasons[0];
       const summary =
         result.reasons.length === 1
-          ? result.reasons[0].message
-          : `${result.reasons.length} subjects could not be scheduled. Review each one below to see what's blocking it.`;
+          ? `"${single.subjectName}" (${single.durationMinutes} min) can't be placed on either MW or TTh — each pattern is explained below.`
+          : `${result.reasons.length} subjects could not be scheduled on either day pattern. Review each one below to see what's blocking its MW and TTh options.`;
       return {
         ok: false as const,
         error: summary,
@@ -263,6 +265,7 @@ export const generate = action({
         roomId: placement.roomId as Id<"rooms">,
         roomName: room?.name ?? "Unknown",
         roomType: room?.type ?? "lecture",
+        dayPattern: placement.dayPattern,
         dayIndex: placement.dayIndex,
         startMinutes: placement.startMinutes,
         endMinutes: placement.endMinutes,

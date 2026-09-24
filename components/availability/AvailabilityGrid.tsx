@@ -10,15 +10,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  AVAILABILITY_DAYS,
   AVAILABILITY_TIME_SLOTS,
-  availabilitySlotKey,
+  areaPatternLabel,
+  availabilityPatternKey,
 } from "@/constants/availability";
+import {
+  DAY_PATTERN_OPTIONS,
+  type DayPattern,
+} from "@/constants/dayPatterns";
 import { cn } from "@/lib/utils";
 
 export interface AvailabilityGridProps {
   blocked: ReadonlySet<string>;
-  onToggle: (dayIndex: number, timeSlotIndex: number) => void;
+  onToggle: (dayPattern: DayPattern, timeSlotIndex: number) => void;
   disabled?: boolean;
 }
 
@@ -32,16 +36,21 @@ export function AvailabilityGrid({
       <div className="overflow-x-auto">
         <div
           role="grid"
-          aria-label="Weekly availability"
-          className="grid min-w-[42rem] grid-cols-[3.25rem_repeat(6,minmax(5rem,1fr))] gap-1.5"
+          aria-label="Weekly availability by schedule pattern"
+          className="grid min-w-[24rem] grid-cols-[3.25rem_repeat(2,minmax(7rem,1fr))] gap-1.5"
         >
           <div aria-hidden="true" className="h-8" />
-          {AVAILABILITY_DAYS.map((day) => (
+          {DAY_PATTERN_OPTIONS.map((dayPattern) => (
             <div
-              key={day.index}
-              className="flex h-8 items-center justify-center text-xs font-medium text-muted-foreground"
+              key={dayPattern}
+              className="flex flex-col items-center justify-center gap-0.5"
             >
-              {day.shortName}
+              <span className="text-xs font-medium text-foreground">
+                {areaPatternLabel(dayPattern)}
+              </span>
+              <span className="text-[0.6875rem] text-muted-foreground">
+                {dayPattern}
+              </span>
             </div>
           ))}
 
@@ -53,9 +62,10 @@ export function AvailabilityGrid({
               >
                 {slot.label}
               </div>
-              {AVAILABILITY_DAYS.map((day) => {
-                const key = availabilitySlotKey(day.index, slot.index);
+              {DAY_PATTERN_OPTIONS.map((dayPattern) => {
+                const key = availabilityPatternKey(dayPattern, slot.index);
                 const isBlocked = blocked.has(key);
+                const patternLabel = areaPatternLabel(dayPattern);
 
                 return (
                   <Tooltip key={key}>
@@ -64,9 +74,9 @@ export function AvailabilityGrid({
                         <Toggle
                           pressed={isBlocked}
                           onPressedChange={() =>
-                            onToggle(day.index, slot.index)
+                            onToggle(dayPattern, slot.index)
                           }
-                          aria-label={`${day.name} ${slot.rangeLabel}${
+                          aria-label={`${patternLabel} ${slot.rangeLabel}${
                             isBlocked
                               ? ", unavailable"
                               : ", available"
@@ -76,14 +86,14 @@ export function AvailabilityGrid({
                           className={cn(
                             "h-9 w-full rounded-md",
                             isBlocked
-                              ? "border-transparent bg-accent-primary text-accent-primary-foreground hover:bg-accent-primary/90 aria-pressed:bg-accent-primary"
+                              ? "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/90 aria-pressed:bg-destructive"
                               : "border-border bg-background hover:bg-muted",
                           )}
                         />
                       }
                     />
                     <TooltipContent>
-                      {day.name} {slot.rangeLabel}
+                      {patternLabel} {slot.rangeLabel}
                     </TooltipContent>
                   </Tooltip>
                 );

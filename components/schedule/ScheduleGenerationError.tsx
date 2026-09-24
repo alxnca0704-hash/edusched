@@ -16,6 +16,7 @@ import { DAY_PATTERNS } from "@/constants/dayPatterns";
 import { cn } from "@/lib/utils";
 import type {
   InfeasibilityCause,
+  InfeasiblePattern,
   InfeasibleSubject,
 } from "@/types/schedule";
 
@@ -63,23 +64,49 @@ function FreeWindowsBlock({
   );
 }
 
-function InfeasibleSubjectDetails({ reason }: { reason: InfeasibleSubject }) {
-  const days = DAY_PATTERNS[reason.dayPattern];
+function PatternFailureBlock({
+  pattern,
+  durationMinutes,
+}: {
+  pattern: InfeasiblePattern;
+  durationMinutes: number;
+}) {
+  const days = DAY_PATTERNS[pattern.dayPattern];
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">{reason.message}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="secondary">{pattern.dayPattern}</Badge>
+        <span className="text-xs text-muted-foreground">
+          {CAUSE_LABELS[pattern.cause]}
+        </span>
+      </div>
+      <p className="text-sm text-muted-foreground">{pattern.message}</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <FreeWindowsBlock
           dayLabel={days[0] ?? "Day 1"}
-          windows={reason.day1FreeWindows}
-          durationMinutes={reason.durationMinutes}
+          windows={pattern.day1FreeWindows}
+          durationMinutes={durationMinutes}
         />
         <FreeWindowsBlock
           dayLabel={days[1] ?? "Day 2"}
-          windows={reason.day2FreeWindows}
-          durationMinutes={reason.durationMinutes}
+          windows={pattern.day2FreeWindows}
+          durationMinutes={durationMinutes}
         />
       </div>
+    </div>
+  );
+}
+
+function InfeasibleSubjectDetails({ reason }: { reason: InfeasibleSubject }) {
+  return (
+    <div className="flex flex-col gap-4">
+      {reason.patterns.map((pattern, index) => (
+        <PatternFailureBlock
+          key={`${pattern.dayPattern}-${index}`}
+          pattern={pattern}
+          durationMinutes={reason.durationMinutes}
+        />
+      ))}
     </div>
   );
 }
@@ -116,13 +143,12 @@ export function ScheduleGenerationError({
                 <AccordionTrigger className="items-center gap-2">
                   <span className="flex min-w-0 flex-1 items-center gap-2">
                     <span className="truncate">{reason.subjectName}</span>
-                    <Badge variant="secondary">{reason.dayPattern}</Badge>
                     <span className="hidden text-xs text-muted-foreground sm:inline">
                       {reason.durationMinutes} min
                     </span>
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {CAUSE_LABELS[reason.cause]}
+                    Both patterns blocked
                   </span>
                 </AccordionTrigger>
                 <AccordionContent>

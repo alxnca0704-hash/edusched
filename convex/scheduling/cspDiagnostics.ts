@@ -3,7 +3,9 @@ import { DAY_PATTERN_DAY_INDEXES } from "../../constants/dayPatterns";
 import type {
   FreeWindow,
   InfeasibilityReason,
+  PatternInfeasibility,
   PlacedSession,
+  SchedulingDayPattern,
   SchedulingInput,
   SchedulingSubject,
   SchedulingTimeSlot,
@@ -177,26 +179,32 @@ function windowsText(
 }
 
 /**
- * Explains why a single subject's day-pair (MW/TTh) could not be placed.
+ * Explains why a single subject's day-pair (MW or TTh — passed explicitly,
+ * since the algorithm now chooses the pattern instead of the Dean) could not
+ * be placed.
  *
  * The teacher's free windows on each pattern day are computed from the
- * teacher's blocked slots (declared availability) minus any other placed
+ * teacher's blocked slots (declared availability, which is pattern-level —
+ * a block always applies to both days of the pair) minus any other placed
  * session of the same teacher on that day, restricted to the school-hours
  * grid and to windows long enough to fit the subject's duration.
  *
- * - No start time shared across both days → teacher-caused
- *   (`no-shared-teacher-window`).
+ * - No start time shared across both days → `no-shared-teacher-window`.
+ *   Availability alone can no longer cause this (both days of a pair always
+ *   carry identical blocks), so a mismatch now only comes from placed
+ *   sessions differing between the two days or a fully-blocked pattern.
  * - Shared start times exist but the subject's assigned room is occupied at
  *   every one → room-caused (`no-room-available`).
  * - Otherwise the subject fits in isolation and the failure comes from
  *   interactions between placements (`unknown`).
  */
-export function explainInfeasibility(
+export function explainPatternFailure(
   subject: SchedulingSubject,
   input: SchedulingInput,
   placedSessions: readonly PlacedSession[],
-): InfeasibilityReason {
-  const patternDays = DAY_PATTERN_DAY_INDEXES[subject.dayPattern] ?? [];
+  dayPattern: SchedulingDayPattern,
+): PatternInfeasibility {
+  const patternDays = DAY_PATTERN_DAY_INDEXES[dayPattern];
   const dayIndex1 = patternDays[0] ?? -1;
   const dayIndex2 = patternDays[1] ?? -1;
 
@@ -224,14 +232,12 @@ export function explainInfeasibility(
 
   if (sharedStarts.length === 0) {
     return {
-      subjectName: subject.name,
-      dayPattern: subject.dayPattern,
-      durationMinutes: subject.durationMinutes,
+      dayPattern,
       day1FreeWindows,
       day2FreeWindows,
       cause: "no-shared-teacher-window",
       message:
-        `"${subject.name}" (${subject.durationMinutes} min, ${subject.dayPattern}) ` +
+        `"${subject.name}" (${subject.durationMinutes} min, ${dayPattern}) ` +
         `can't fit ${day1Short} & ${day2Short}: ` +
         `${windowsText(day1FreeWindows, day1Short, subject.durationMinutes)}; ` +
         `${windowsText(day2FreeWindows, day2Short, subject.durationMinutes)}. ` +
@@ -264,14 +270,12 @@ export function explainInfeasibility(
 
   if (firstAvailable === undefined) {
     return {
-      subjectName: subject.name,
-      dayPattern: subject.dayPattern,
-      durationMinutes: subject.durationMinutes,
+      dayPattern,
       day1FreeWindows,
       day2FreeWindows,
       cause: "no-room-available",
       message:
-        `"${subject.name}" (${subject.durationMinutes} min, ${subject.dayPattern}) ` +
+        `"${subject.name}" (${subject.durationMinutes} min, ${dayPattern}) ` +
         `is free at shared times on ${day1Short} & ${day2Short} ` +
         `(e.g. ${formatClock(sharedStarts[0])}), but ${roomName} is occupied at ` +
         `every shared start. Free up ${roomName} or assign a different room.`,
@@ -279,16 +283,37 @@ export function explainInfeasibility(
   }
 
   return {
-    subjectName: subject.name,
-    dayPattern: subject.dayPattern,
-    durationMinutes: subject.durationMinutes,
+    dayPattern,
     day1FreeWindows,
     day2FreeWindows,
     cause: "unknown",
     message:
-      `"${subject.name}" (${subject.durationMinutes} min, ${subject.dayPattern}) ` +
+      `"${subject.name}" (${subject.durationMinutes} min, ${dayPattern}) ` +
       `fits on its own at ${formatClock(firstAvailable)} on both days, but no ` +
       `full arrangement works with the other classes already placed. Try freeing ` +
       `the teacher or room at that time.`,
+  };
+}
+
+/**
+ * A subject is infeasible when the algorithm cannot place it on EITHER day
+ * pattern. Each pattern is explained separately so the Dean can see exactly
+ * what blocks MW and what blocks TTh (e.g. "MW: teacher free only 7–8 AM;
+ * TTh: no room window that matches all classes").
+ */
+export function explainInfeasibility(
+  subject: SchedulingSubject,
+  input: SchedulingInput,
+  placedSessions: readonly PlacedSession[],
+): InfeasibilityReason {
+  const patterns = (
+    ["MW", "TTh"] as const
+  ).map((dayPattern) =>
+    explainPatternFailure(subject, input, placedSessions, dayPattern),
+  );
+  return {
+    subjectName: subject.name,
+    durationMinutes: subject.durationMinutes,
+    patterns,
   };
 }

@@ -63,7 +63,10 @@ export function validateSolution(
 
   for (const subject of input.subjects) {
     const sessions = sessionsBySubject.get(subject.id) ?? [];
-    const patternDays = DAY_PATTERN_DAY_INDEXES[subject.dayPattern] ?? [];
+    const patternDays =
+      sessions.length > 0 && sessions[0].dayPattern
+        ? DAY_PATTERN_DAY_INDEXES[sessions[0].dayPattern] ?? []
+        : [];
 
     if (sessions.length !== 2) {
       violations.push(

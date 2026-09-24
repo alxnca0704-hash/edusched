@@ -22,11 +22,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ROOM_TYPE_LABELS } from "@/constants/rooms";
-import {
-  DAY_PATTERN_LABELS,
-  DAY_PATTERN_OPTIONS,
-  type DayPattern,
-} from "@/constants/dayPatterns";
 import { errorMessage } from "@/lib/result";
 import { subjectFormSchema } from "@/lib/validation/subject";
 import type {
@@ -58,9 +53,6 @@ export function SubjectFormDialog({
   const [durationMinutes, setDurationMinutes] = useState(
     subject ? String(subject.durationMinutes) : "",
   );
-  const [dayPattern, setDayPattern] = useState<DayPattern | null>(
-    subject?.dayPattern ?? null,
-  );
   const [roomId, setRoomId] = useState<string | null>(subject?.roomId ?? null);
   const [teacherId, setTeacherId] = useState<string | null>(
     subject?.teacherId ?? null,
@@ -79,7 +71,6 @@ export function SubjectFormDialog({
     const parsed = subjectFormSchema.safeParse({
       name,
       durationMinutes,
-      dayPattern: dayPattern ?? "",
       roomId: roomId ?? "",
       teacherId: teacherId ?? "",
     });
@@ -166,36 +157,6 @@ export function SubjectFormDialog({
               {fieldErrors.durationMinutes ? (
                 <p className="text-xs text-destructive">
                   {fieldErrors.durationMinutes}
-                </p>
-              ) : null}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor={`${formId}-days`}>Schedule pattern</Label>
-              <Select
-                value={dayPattern}
-                onValueChange={(value) => setDayPattern(value as DayPattern)}
-                modal={false}
-              >
-                <SelectTrigger id={`${formId}-days`} className="w-full">
-                  <SelectValue>
-                    {(value) =>
-                      value
-                        ? DAY_PATTERN_LABELS[value as DayPattern]
-                        : "Select a schedule pattern"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {DAY_PATTERN_OPTIONS.map((pattern) => (
-                    <SelectItem key={pattern} value={pattern}>
-                      {DAY_PATTERN_LABELS[pattern]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {fieldErrors.dayPattern ? (
-                <p className="text-xs text-destructive">
-                  {fieldErrors.dayPattern}
                 </p>
               ) : null}
             </div>

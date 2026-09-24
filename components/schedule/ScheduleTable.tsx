@@ -6,12 +6,7 @@ import {
   AVAILABILITY_DAYS,
   formatClock,
 } from "@/constants/availability";
-import {
-  DAY_PATTERN_DAY_INDEXES,
-  DAY_PATTERN_OPTIONS,
-  DAY_PATTERNS,
-  type DayPattern,
-} from "@/constants/dayPatterns";
+import { DAY_PATTERNS } from "@/constants/dayPatterns";
 import { ROOM_TYPE_LABELS } from "@/constants/rooms";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,20 +31,6 @@ interface SubjectGroup {
   roomName: string;
   roomType: ScheduleSession["roomType"];
   sessions: ScheduleSession[];
-}
-
-function patternFromDayIndexes(indexes: readonly number[]): DayPattern | null {
-  const actual = [...indexes].sort((a, b) => a - b);
-  for (const pattern of DAY_PATTERN_OPTIONS) {
-    const expected = [...DAY_PATTERN_DAY_INDEXES[pattern]].sort((a, b) => a - b);
-    if (
-      actual.length === expected.length &&
-      actual.every((index, position) => index === expected[position])
-    ) {
-      return pattern;
-    }
-  }
-  return null;
 }
 
 function scheduleDayName(dayIndex: number): string {
@@ -111,9 +92,7 @@ export function ScheduleTable({ sessions, className }: ScheduleTableProps) {
       <TableBody>
         {groups.flatMap((group) => {
           if (isCleanPair(group)) {
-            const pattern = patternFromDayIndexes(
-              group.sessions.map((session) => session.dayIndex),
-            );
+            const pattern = group.sessions[0].dayPattern;
             const [first] = group.sessions;
             return [
               <TableRow key={group.subjectId}>

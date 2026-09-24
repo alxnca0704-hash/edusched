@@ -9,6 +9,7 @@ export interface ScheduleSession {
   roomId: string;
   roomName: string;
   roomType: RoomType;
+  dayPattern: "MW" | "TTh";
   dayIndex: number;
   startMinutes: number;
   endMinutes: number;
@@ -26,14 +27,18 @@ export interface FreeWindow {
   end: number;
 }
 
-export interface InfeasibleSubject {
-  subjectName: string;
+export interface InfeasiblePattern {
   dayPattern: "MW" | "TTh";
-  durationMinutes: number;
   day1FreeWindows: readonly FreeWindow[];
   day2FreeWindows: readonly FreeWindow[];
   cause: InfeasibilityCause;
   message: string;
+}
+
+export interface InfeasibleSubject {
+  subjectName: string;
+  durationMinutes: number;
+  patterns: readonly InfeasiblePattern[];
 }
 
 export type GenerateScheduleResult =

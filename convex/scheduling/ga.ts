@@ -1,6 +1,7 @@
 import type {
   GaOptions,
   PlacedSession,
+  SchedulingDayPattern,
   SchedulingInput,
 } from "./types";
 import {
@@ -13,9 +14,12 @@ import { validateSolution } from "./validate";
 /*
  * Genetic Algorithm optimizer.
  *
- * Takes the CSP's valid schedule and tries to improve it against soft
- * constraints (minimizing a teacher's idle gaps and same-day overload).
- * The GA only ever produces valid schedules:
+ * The CSP has already chosen a day pattern (MW or TTh) per subject; the GA
+ * locks that choice in by building exactly ONE unit per subject — the option
+ * whose pattern matches the subject's sessions in the seed solution — before
+ * optimizing the ordering. It takes the CSP's valid schedule and tries to
+ * improve it against soft constraints (minimizing a teacher's idle gaps and
+ * same-day overload). The GA only ever produces valid schedules:
  *
  *   - A chromosome is a permutation of subject units. Each unit IS a
  *     day-pair (MW or TTh): decoding it always places both sessions at the
@@ -54,12 +58,26 @@ export function runGA(
   if (
     built.reason ||
     built.reasons.length > 0 ||
-    built.units.length === 0
+    built.domains.length === 0
   ) {
     return [...seedSolution];
   }
 
-  const units = built.units;
+  const seedPatternBySubject = new Map<string, SchedulingDayPattern>();
+  for (const placement of seedSolution) {
+    seedPatternBySubject.set(placement.subjectId, placement.dayPattern);
+  }
+
+  const units: SubjectUnit[] = [];
+  for (const domain of built.domains) {
+    const seedPattern = seedPatternBySubject.get(domain.subject.id);
+    const unit =
+      domain.options.find((option) => option.dayPattern === seedPattern) ??
+      domain.options[0];
+    if (unit) {
+      units.push(unit);
+    }
+  }
   const unitKeys = units.map((unit) => unit.unitKey);
   const unitByKey = new Map(units.map((unit) => [unit.unitKey, unit]));
 
