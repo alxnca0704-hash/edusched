@@ -5,17 +5,16 @@ change.
 
 ## Current Phase
 
-Complete — Dean Room CRUD
-(Task: `context/spec/03-room-management.md`)
+Complete — Teacher Availability
+(Task: `context/spec/04-teacher-availability.md`)
 
 ## Current Goal
 
-Add a full CRUD management UI for rooms on the Dean side at
-`/dean/rooms`: a table with a category column, an add/edit form
-modal, row action icons, and search. Functions: add, delete,
-update — all backed by Convex with lint passing. Also connect room
-selection into Subject management (replacing the hard-coded
-lecture/lab type picker).
+Teacher side: a weekly availability grid (Mon–Sat, 7:00 AM–5:00 PM 1-hour
+blocks) where a logged-in teacher toggles unavailable time slots, saved to
+Convex per their Clerk `userId`. Teacher sidebar (Availability, My
+Schedule) reusing the generic shared sidebar. Loading/empty/error states
+per code-standards; lint + build pass.
 
 ## Completed
 
@@ -134,24 +133,97 @@ lecture/lab type picker).
     (inline-query sandbox works if double quotes are written as single
     quotes in PowerShell 5.1, which otherwise strips `"` from native
     args); `npm run lint` (0 errors), `npm run build` passes
+- **Teacher Availability (spec 04)** — full unit:
+  - Installed shadcn `toggle`, `toggle-group`, `sonner` via CLI (deps
+    added: `sonner`, `next-themes`)
+  - Added `availability` table to `convex/schema.ts` (teacherId = Clerk
+    user id, blockedSlots `string[]`, createdAt/updatedAt) +
+    `by_teacherId` index
+  - `convex/availability.ts` — `getMine` query + `setMine` mutation;
+    both gate on teacher role (`roleOf`); `getMine` returns the doc's
+    `blockedSlots` (or `[]`); `setMine` validates every slot key against
+    known bounds (6 days × 10 slots) before upserting (insert or patch)
+  - Slot keys are strings `"<dayIndex>-<timeIndex>"` — `0..5` =
+    Mon–Sat, `0..9` = 7:00 AM–5:00 PM 1-hour slots
+  - `types/availability.ts` (`AvailabilityDay`, `AvailabilityTimeSlot`,
+    `AvailabilitySlotKey`) + `constants/availability.ts`
+    (`AVAILABILITY_DAYS`, `AVAILABILITY_TIME_SLOTS`,
+    `availabilitySlotKey` / `parseAvailabilitySlotKey` /
+    `availabilitySlotLabel`)
+  - `hooks/useAvailability.ts` — one hook per page: `getMine` query,
+    `isLoading`/`isEmpty`/`error`/`isSaving`, `save` mutation (stable
+    `EMPTY_BLOCKED` reference so the page can hydrate draft without
+    render loops)
+  - `components/availability/AvailabilityGrid.tsx` (toggle grid via
+    shadcn `Toggle` + `Tooltip` per cell, horizontally scrollable on
+    small screens, `overflow-x-auto` + `min-w-[42rem]`),
+    `AvailabilityGridSkeleton.tsx` (matching grid-shaped Skeletons),
+    `AvailabilityPage.tsx` (page-level component: draft `Set` state
+    hydrated once from the hook, Save persists full set, Reset reverts,
+    sonner toasts, inline blocked-count summary, `ErrorState` retry)
+  - **Sidebar refactor**: extracted shared `components/shared/AppSidebar.tsx`
+    (takes `groups` prop) — `DeanSidebar` now wraps it with `DEAN_NAV`;
+    added `components/TeacherSidebar.tsx` with `TEACHER_NAV`
+    (Dashboard / Availability / My Schedule); no duplicated sidebar code
+  - New routes: `APP_ROUTES.teacherAvailability` (`/teacher/availability`),
+    `APP_ROUTES.teacherSchedule` (`/teacher/schedule`)
+  - `app/teacher/layout.tsx` — `SidebarProvider` + `TeacherSidebar` +
+    content column, `requireRole(ROLES.teacher)` (mirrors dean layout;
+    plain `<div>` for content, no nested `<main>`)
+  - `app/teacher/availability/page.tsx` renders `<AvailabilityPage />`;
+    `app/teacher/schedule/page.tsx` is a `"use client"` placeholder
+    (EmptyState) so the My Schedule nav link doesn't 404 (no real
+    schedule yet)
+  - Mounted `components/ui/sonner` `<Toaster position="top-right" />` in
+    the root `app/layout.tsx` (inside the main column) for save/error
+    toasts
+  - Fixed runtime issue caught after build: passing a lucide icon
+    component from a Server Component page into client `EmptyState` is
+    not allowed (`Only plain objects can be passed to Client Components`)
+    → schedule page is now a client component
+  - Verified: `npm run lint` (0 errors — only pre-existing warnings in
+    `convex/_generated/*` and `convex/auth.config.ts`), `npm run build`
+    passes; `convex codegen` pushed the schema/functions to dev; ran
+    `availability:getMine` (ok/empty unauthenticated) and
+    `availability:setMine` (throws Unauthorized as expected) via
+    `npx convex run`
 
 ## In Progress
 
-- None. Dean Room CRUD unit complete.
+- None. Teacher Availability unit complete.
 
 ## Next Up
 
-1. Teacher taskbar/section (own unit)
-2. Schedule Generation (Dean) + schedule views — depends on Rooms and
-   Subjects (now by room id) and Teacher availability
+1. Schedule Generation (Dean) + schedule views — depends on Rooms and
+   Subjects (now by room id) and Teacher availability (now saved per
+   teacher)
+2. Teacher My Schedule view (real, not placeholder) once schedules exist
 
 ## Open Questions
 
+- The exact availability time blocks were not defined in
+  `project-overview.md` / `architecture.md`. Spec 04 suggested "7:00
+  AM–5:00 PM in 1–1.5 hr blocks"; implemented Mon–Sat × 10 × 1-hour
+  slots (7:00 AM–5:00 PM). Confirm/adjust these exact blocks before the
+  scheduler consumes them. Bounds are mirrored in
+  `convex/availability.ts` and `constants/availability.ts` (keep in
+  sync).
+- Spec 04 references a "dark green accent token" for sidebar active
+  state. Introduced `--accent-primary` (+ `--accent-primary-foreground`)
+  in `globals.css` (mapped in `@theme inline` as
+  `--color-accent-primary*`). Used by the availability grid's blocked
+  cells (`bg-accent-primary`). Teacher sidebar still mirrors the Dean
+  sidebar styling — decide whether to migrate both sidebars to the
+  green accent. Registered here rather than invented.
+- `/teacher/schedule` ("My Schedule") is a placeholder page — the real
+  read-only schedule view is a separate unit that depends on schedule
+  generation.
 - The antd/shadcn split: existing dashboard components
   (`DeanDashboard`, `TeacherDashboard`, `AppHeader`, root antd
   `ConfigProvider`) still use antd, while new UI (DeanSidebar, Subject
-  Management, Room Management) uses shadcn. Decide when/how to migrate
-  the remaining antd components to shadcn, or keep antd for them.
+  Management, Room Management, Teacher availability) uses shadcn. Decide
+  when/how to migrate the remaining antd components to shadcn, or keep
+  antd for them.
 - Deleting a Room that is still referenced by Subjects: subjects always
   carry a `roomId` (strict schema), so deleting a referenced room leaves
   subjects pointing at a missing room (rendered as `—`). Decide whether
@@ -202,6 +274,24 @@ lecture/lab type picker).
 - `useRooms` mirrors `useSubjects`: single hook per page, Result-union
   `listAll` query, throw-and-catch mutations in the dialog components,
   Skeleton-based loading/empty/error states.
+- Availability is stored as one doc per teacher (`availability` table,
+  indexed by Clerk `userId`); `blockedSlots` is the full set of
+  `"<dayIndex>-<timeIndex>"` keys. Grid edits are kept as local draft
+  state; **Save** writes the whole array (upsert: insert or patch) and
+  **Reset** reverts to the last saved set — an atomic write avoids many
+  small per-cell document churn.
+- `getMine`/`setMine` gate on the teacher role (`roleOf`). `getMine`
+  returns `{ ok: true, data: [] }` for non-teachers rather than throwing
+  (mirrors `rooms.listAll`); `setMine` throws `Unauthorized` and also
+  rejects any slot key outside the 6 days × 10 slots bounds.
+- Sidebar is now generic: `components/shared/AppSidebar.tsx` takes a
+  `groups` prop; `DeanSidebar` and `TeacherSidebar` are thin wrappers
+  supplying their own nav configs from `APP_ROUTES` (no raw path
+  strings).
+- The availability "empty" state (no blocked slots) is rendered as an
+  inline hint above the grid rather than replacing the grid with
+  `EmptyState`, because the grid is always interactive even when every
+  cell is available — a full EmptyState swap would prevent marking slots.
 
 ## Session Notes
 
@@ -214,3 +304,5 @@ lecture/lab type picker).
 - Spec: `context/spec/02-subject-management.md` (Dean Subject CRUD)
 - Spec: `context/spec/03-room-management.md` (Dean Room CRUD + subject
   room selection)
+- Spec: `context/spec/04-teacher-availability.md` (Teacher Availability
+  + Teacher sidebar)

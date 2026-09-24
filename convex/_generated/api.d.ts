@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as availability from "../availability.js";
 import type * as migrations from "../migrations.js";
 import type * as roles from "../roles.js";
 import type * as rooms from "../rooms.js";
@@ -22,6 +23,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  availability: typeof availability;
   migrations: typeof migrations;
   roles: typeof roles;
   rooms: typeof rooms;

@@ -7,6 +7,7 @@ import { ConfigProvider, type ThemeConfig } from "antd";
 
 import { AppHeader } from "@/components/AppHeader";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
+import { Toaster } from "@/components/ui/sonner";
 
 import "./globals.css";
 
@@ -57,6 +58,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <div className="flex min-h-screen flex-col">
                   <AppHeader />
                   <main className="flex flex-1 flex-col">{children}</main>
+                  <Toaster position="top-right" />
                 </div>
               </ConfigProvider>
             </AntdRegistry>
