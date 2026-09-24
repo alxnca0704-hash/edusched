@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BookOpen, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { DoorOpen, Pencil, Plus, Search, Trash2 } from "lucide-react";
 
 import { ErrorState } from "@/components/shared/ErrorState";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { SubjectDeleteDialog } from "@/components/subjects/SubjectDeleteDialog";
-import { SubjectFormDialog } from "@/components/subjects/SubjectFormDialog";
+import { RoomDeleteDialog } from "@/components/rooms/RoomDeleteDialog";
+import { RoomFormDialog } from "@/components/rooms/RoomFormDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,53 +20,42 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ROOM_TYPE_LABELS } from "@/constants/rooms";
-import { useSubjects } from "@/hooks/useSubjects";
-import type { SubjectFormValues, SubjectListItem } from "@/types/subjects";
+import { useRooms } from "@/hooks/useRooms";
+import type { Room, RoomFormValues } from "@/types/rooms";
 
 const SKELETON_ROWS = 5;
 
-export function SubjectManagement() {
-  const {
-    subjects,
-    teachers,
-    rooms,
-    isLoading,
-    isEmpty,
-    error,
-    addSubject,
-    updateSubject,
-    deleteSubject,
-  } = useSubjects();
+export function RoomManagement() {
+  const { rooms, isLoading, isEmpty, error, addRoom, updateRoom, deleteRoom } =
+    useRooms();
 
   const [search, setSearch] = useState("");
   const [formSession, setFormSession] = useState<{
-    subject: SubjectListItem | null;
+    room: Room | null;
   } | null>(null);
-  const [deleting, setDeleting] = useState<SubjectListItem | null>(null);
+  const [deleting, setDeleting] = useState<Room | null>(null);
 
-  const filteredSubjects = useMemo(() => {
+  const filteredRooms = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) {
-      return subjects;
+      return rooms;
     }
-    return subjects.filter(
-      (subject) =>
-        subject.name.toLowerCase().includes(query) ||
-        subject.teacherName.toLowerCase().includes(query) ||
-        subject.roomName.toLowerCase().includes(query) ||
-        ROOM_TYPE_LABELS[subject.roomType].toLowerCase().includes(query),
+    return rooms.filter(
+      (room) =>
+        room.name.toLowerCase().includes(query) ||
+        ROOM_TYPE_LABELS[room.type].toLowerCase().includes(query),
     );
-  }, [subjects, search]);
+  }, [rooms, search]);
 
   function openCreate() {
-    setFormSession({ subject: null });
+    setFormSession({ room: null });
   }
 
-  function openEdit(subject: SubjectListItem) {
-    setFormSession({ subject });
+  function openEdit(room: Room) {
+    setFormSession({ room });
   }
 
-  function handleSubjectErrorRetry() {
+  function handleRoomErrorRetry() {
     window.location.reload();
   }
 
@@ -76,11 +65,8 @@ export function SubjectManagement() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-44">Subject</TableHead>
+              <TableHead className="w-44">Room</TableHead>
               <TableHead>Category</TableHead>
-              <TableHead>Duration</TableHead>
-              <TableHead>Meetings</TableHead>
-              <TableHead>Teacher</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -94,15 +80,6 @@ export function SubjectManagement() {
                   <Skeleton className="h-5 w-16" />
                 </TableCell>
                 <TableCell>
-                  <Skeleton className="h-4 w-12" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-12" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-24" />
-                </TableCell>
-                <TableCell>
                   <Skeleton className="ml-auto h-7 w-14" />
                 </TableCell>
               </TableRow>
@@ -113,30 +90,36 @@ export function SubjectManagement() {
     }
 
     if (error) {
-      return <ErrorState message={error} onRetry={handleSubjectErrorRetry} />;
+      return (
+        <ErrorState
+          title="Couldn't load rooms"
+          message={error}
+          onRetry={handleRoomErrorRetry}
+        />
+      );
     }
 
     if (isEmpty) {
       return (
         <EmptyState
-          icon={BookOpen}
-          title="No subjects yet"
-          description="Add your first subject to start building the schedule."
+          icon={DoorOpen}
+          title="No rooms yet"
+          description="Add your first room to start building the schedule."
           action={
             <Button onClick={openCreate}>
               <Plus />
-              Add subject
+              Add room
             </Button>
           }
         />
       );
     }
 
-    if (filteredSubjects.length === 0) {
+    if (filteredRooms.length === 0) {
       return (
         <EmptyState
           icon={Search}
-          title="No matching subjects"
+          title="No matching rooms"
           description={`Nothing matches "${search}".`}
           action={
             <Button variant="outline" onClick={() => setSearch("")}>
@@ -151,52 +134,33 @@ export function SubjectManagement() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-44">Subject</TableHead>
+            <TableHead className="w-44">Room</TableHead>
             <TableHead>Category</TableHead>
-            <TableHead>Duration</TableHead>
-            <TableHead>Meetings</TableHead>
-            <TableHead>Teacher</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {filteredSubjects.map((subject) => (
-            <TableRow key={subject._id}>
-              <TableCell className="font-medium">{subject.name}</TableCell>
+          {filteredRooms.map((room) => (
+            <TableRow key={room._id}>
+              <TableCell className="font-medium">{room.name}</TableCell>
               <TableCell>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">
-                    {ROOM_TYPE_LABELS[subject.roomType]}
-                  </Badge>
-                  <span className="text-muted-foreground">
-                    {subject.roomName}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {subject.durationMinutes} min
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {subject.meetingsPerWeek} / week
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {subject.teacherName}
+                <Badge variant="secondary">{ROOM_TYPE_LABELS[room.type]}</Badge>
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex items-center justify-end gap-1">
                   <Button
                     size="icon-sm"
                     variant="ghost"
-                    aria-label={`Edit ${subject.name}`}
-                    onClick={() => openEdit(subject)}
+                    aria-label={`Edit ${room.name}`}
+                    onClick={() => openEdit(room)}
                   >
                     <Pencil />
                   </Button>
                   <Button
                     size="icon-sm"
                     variant="ghost"
-                    aria-label={`Delete ${subject.name}`}
-                    onClick={() => setDeleting(subject)}
+                    aria-label={`Delete ${room.name}`}
+                    onClick={() => setDeleting(room)}
                   >
                     <Trash2 />
                   </Button>
@@ -212,11 +176,9 @@ export function SubjectManagement() {
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
       <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold tracking-tight">
-          Manage Subjects
-        </h1>
+        <h1 className="text-xl font-semibold tracking-tight">Manage Rooms</h1>
         <p className="text-sm text-muted-foreground">
-          Add, update, and remove subjects for scheduling.
+          Add, update, and remove rooms for scheduling.
         </p>
       </div>
 
@@ -226,14 +188,14 @@ export function SubjectManagement() {
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search subjects..."
+            placeholder="Search rooms..."
             className="pl-8"
-            aria-label="Search subjects"
+            aria-label="Search rooms"
           />
         </div>
         <Button onClick={openCreate}>
           <Plus />
-          Add subject
+          Add room
         </Button>
       </div>
 
@@ -242,26 +204,24 @@ export function SubjectManagement() {
       </div>
 
       {formSession ? (
-        <SubjectFormDialog
-          key={formSession.subject?._id ?? "new"}
-          subject={formSession.subject ?? undefined}
-          teachers={teachers}
-          rooms={rooms}
+        <RoomFormDialog
+          key={formSession.room?._id ?? "new"}
+          room={formSession.room ?? undefined}
           onSubmit={
-            formSession.subject
-              ? (values: SubjectFormValues) =>
-                  updateSubject(formSession.subject!._id, values)
-              : addSubject
+            formSession.room
+              ? (values: RoomFormValues) =>
+                  updateRoom(formSession.room!._id, values)
+              : addRoom
           }
           onClose={() => setFormSession(null)}
         />
       ) : null}
 
       {deleting ? (
-        <SubjectDeleteDialog
-          key={`subject-delete-${deleting._id}`}
-          subject={deleting}
-          onConfirm={deleteSubject}
+        <RoomDeleteDialog
+          key={`room-delete-${deleting._id}`}
+          room={deleting}
+          onConfirm={deleteRoom}
           onClose={() => setDeleting(null)}
         />
       ) : null}

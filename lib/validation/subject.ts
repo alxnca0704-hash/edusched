@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import { ROOM_TYPES } from "@/constants/subjects";
-
 export const subjectFormSchema = z.object({
   name: z
     .string()
@@ -18,9 +16,7 @@ export const subjectFormSchema = z.object({
     .int("Meetings must be a whole number")
     .positive("Meetings must be at least 1")
     .max(10, "Meetings must be 10 or fewer"),
-  roomType: z.enum(ROOM_TYPES, {
-    message: "Choose a room type",
-  }),
+  roomId: z.string().min(1, "Choose a room"),
   teacherId: z.string().min(1, "Assign a teacher"),
 });
 

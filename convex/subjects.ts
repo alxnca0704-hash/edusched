@@ -3,13 +3,11 @@ import { v } from "convex/values";
 
 import { isDean } from "./roles";
 
-const ROOM_TYPES = v.union(v.literal("lecture"), v.literal("lab"));
-
 const subjectFields = {
   name: v.string(),
   durationMinutes: v.number(),
   meetingsPerWeek: v.number(),
-  roomType: ROOM_TYPES,
+  roomId: v.id("rooms"),
   teacherId: v.string(),
 };
 
@@ -43,6 +41,7 @@ export const listAll = query({
         .query("users")
         .withIndex("by_role", (q) => q.eq("role", "teacher"))
         .collect();
+      const rooms = await ctx.db.query("rooms").collect();
 
       const teacherByName = new Map(
         teachers.map((teacher) => [
@@ -51,12 +50,19 @@ export const listAll = query({
         ]),
       );
 
+      const roomById = new Map(rooms.map((room) => [room._id, room]));
+
       return {
         ok: true as const,
-        data: subjects.map((subject) => ({
-          ...subject,
-          teacherName: teacherByName.get(subject.teacherId) ?? "—",
-        })),
+        data: subjects.map((subject) => {
+          const room = roomById.get(subject.roomId);
+          return {
+            ...subject,
+            roomName: room?.name ?? "—",
+            roomType: room?.type ?? "lecture",
+            teacherName: teacherByName.get(subject.teacherId) ?? "—",
+          };
+        }),
       };
     } catch (error) {
       return { ok: false as const, error: toErrorString(error) };
@@ -71,6 +77,12 @@ export const create = mutation({
 
     if (!isDean(identity)) {
       throw new Error("Unauthorized");
+    }
+
+    const room = await ctx.db.get(args.roomId);
+
+    if (!room) {
+      throw new Error("Selected room does not exist");
     }
 
     const teacher = await ctx.db
@@ -88,7 +100,7 @@ export const create = mutation({
       name: args.name.trim(),
       durationMinutes: args.durationMinutes,
       meetingsPerWeek: args.meetingsPerWeek,
-      roomType: args.roomType,
+      roomId: args.roomId,
       teacherId: args.teacherId,
       createdAt: now,
       updatedAt: now,
@@ -114,6 +126,12 @@ export const update = mutation({
       throw new Error("Subject not found");
     }
 
+    const room = await ctx.db.get(args.roomId);
+
+    if (!room) {
+      throw new Error("Selected room does not exist");
+    }
+
     const teacher = await ctx.db
       .query("users")
       .withIndex("by_clerkId", (q) => q.eq("clerkId", args.teacherId))
@@ -127,7 +145,7 @@ export const update = mutation({
       name: args.name.trim(),
       durationMinutes: args.durationMinutes,
       meetingsPerWeek: args.meetingsPerWeek,
-      roomType: args.roomType,
+      roomId: args.roomId,
       teacherId: args.teacherId,
       updatedAt: Date.now(),
     });

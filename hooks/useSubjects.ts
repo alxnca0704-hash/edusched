@@ -10,10 +10,12 @@ import type {
   SubjectListItem,
   TeacherOption,
 } from "@/types/subjects";
+import type { Room } from "@/types/rooms";
 
 export interface UseSubjectsResult {
   subjects: SubjectListItem[];
   teachers: TeacherOption[];
+  rooms: Room[];
   isLoading: boolean;
   isEmpty: boolean;
   error: string | null;
@@ -26,6 +28,7 @@ export interface UseSubjectsResult {
 export function useSubjects(): UseSubjectsResult {
   const listQuery = useQuery(api.subjects.listAll);
   const teachersQuery = useQuery(api.teachers.getTeachers);
+  const roomsQuery = useQuery(api.rooms.listAll);
   const syncTeachers = useAction(api.teachers.syncFromClerk);
   const addSubjectMutation = useMutation(api.subjects.create);
   const updateSubjectMutation = useMutation(api.subjects.update);
@@ -45,23 +48,32 @@ export function useSubjects(): UseSubjectsResult {
     });
   }, [syncTeachers]);
 
-  const isLoading = listQuery === undefined || teachersQuery === undefined;
+  const isLoading =
+    listQuery === undefined ||
+    teachersQuery === undefined ||
+    roomsQuery === undefined;
   const error =
     listQuery?.ok === false
       ? listQuery.error
       : teachersQuery?.ok === false
         ? teachersQuery.error
-        : null;
+        : roomsQuery?.ok === false
+          ? roomsQuery.error
+          : null;
 
   const subjects = listQuery?.ok ? listQuery.data : [];
   const teachers = teachersQuery?.ok ? teachersQuery.data : [];
+  const rooms = roomsQuery?.ok ? roomsQuery.data : [];
   const isEmpty = !isLoading && !error && subjects.length === 0;
 
   const addSubject = useCallback(
     async (values: SubjectFormValues) => {
       setIsMutating(true);
       try {
-        await addSubjectMutation(values);
+        await addSubjectMutation({
+          ...values,
+          roomId: values.roomId as Id<"rooms">,
+        });
       } finally {
         setIsMutating(false);
       }
@@ -73,7 +85,11 @@ export function useSubjects(): UseSubjectsResult {
     async (id: string, values: SubjectFormValues) => {
       setIsMutating(true);
       try {
-        await updateSubjectMutation({ id: id as Id<"subjects">, ...values });
+        await updateSubjectMutation({
+          id: id as Id<"subjects">,
+          ...values,
+          roomId: values.roomId as Id<"rooms">,
+        });
       } finally {
         setIsMutating(false);
       }
@@ -96,6 +112,7 @@ export function useSubjects(): UseSubjectsResult {
   return {
     subjects,
     teachers,
+    rooms,
     isLoading,
     isEmpty,
     error,
