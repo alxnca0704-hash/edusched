@@ -6,6 +6,8 @@ export const APP_ROUTES = {
   deanRooms: "/dean/rooms",
   deanSubjects: "/dean/subjects",
   teacher: "/teacher",
+  teacherAvailability: "/teacher/availability",
+  teacherSchedule: "/teacher/schedule",
 } as const;
 
 export const API_ROUTES = {} as const;

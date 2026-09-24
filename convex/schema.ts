@@ -26,4 +26,10 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_teacherId", ["teacherId"]),
+  availability: defineTable({
+    teacherId: v.string(),
+    blockedSlots: v.array(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_teacherId", ["teacherId"]),
 });
