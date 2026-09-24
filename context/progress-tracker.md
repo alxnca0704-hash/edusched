@@ -5,15 +5,17 @@ change.
 
 ## Current Phase
 
-Complete — Dean Subject CRUD
-(Task: `context/spec/02-subject-management.md`)
+Complete — Dean Room CRUD
+(Task: `context/spec/03-room-management.md`)
 
 ## Current Goal
 
-Add a full CRUD management UI for subjects on the Dean side at
-`/dean/subjects`: a table with a category column, an add/edit
-form modal, row action icons, and search. Functions: add, delete,
-update — all backed by Convex with lint passing.
+Add a full CRUD management UI for rooms on the Dean side at
+`/dean/rooms`: a table with a category column, an add/edit form
+modal, row action icons, and search. Functions: add, delete,
+update — all backed by Convex with lint passing. Also connect room
+selection into Subject management (replacing the hard-coded
+lecture/lab type picker).
 
 ## Completed
 
@@ -87,24 +89,78 @@ update — all backed by Convex with lint passing.
     `scripts/seed-users.ts` now sets first/last names for the seeded
     accounts so Clerk always carries them (run against live Clerk).
   - Verified: `npm run lint` (0 errors), `npm run build` passes
+- **Dean Room CRUD (spec 03)** — full unit:
+  - Added `rooms` table to `convex/schema.ts` (name, type
+    `lecture|lab`, createdAt/updatedAt)
+  - `convex/rooms.ts` — `listAll` (Result union), `create` / `update` /
+    `remove` mutations; all write mutations gate on Dean identity
+  - Moved `RoomType`/`ROOM_TYPES`/`ROOM_TYPE_LABELS` from
+    `types/subjects.ts`+`constants/subjects.ts` into
+    `types/rooms.ts`/`constants/rooms.ts` (deleted
+    `constants/subjects.ts`); `subjects` now imports them from rooms
+  - `types/rooms.ts` (`Room`, `RoomFormValues`),
+    `lib/validation/room.ts` (zod `roomFormSchema`)
+  - `hooks/useRooms.ts` — one hook per page: listAll query,
+    `isLoading`/`isEmpty`/`error`, `addRoom`/`updateRoom`/`deleteRoom`
+  - `components/rooms/RoomManagement.tsx` (search + add/edit/delete
+    wiring, table with Category badge column + icon actions, Skeletons),
+    `RoomFormDialog.tsx` (add/edit modal, zod validation, controlled
+    Base UI select), `RoomDeleteDialog.tsx` (confirm + inline error)
+  - `app/dean/rooms/page.tsx` now renders `<RoomManagement />`
+  - **Subjects now select a real Room** (spec 03): `subjects.roomType`
+    replaced with `subjects.roomId` (Convex `v.id("rooms")`); the
+    subject form's hard-coded Lecture/Lab select is now a "Room" select
+    populated from `api.rooms.listAll`; `listAll` joins rooms to expose
+    `roomName`/`roomType`; create/update validate the room exists;
+    `useSubjects` exposes `rooms` for the form; the subjects table shows
+    the Category badge + connected room name and search covers it
+  - Verified: `npm run lint` (0 errors), `npm run build` passes
+- **Legacy subjects schema fix (post spec 03)** — resolved, live:
+  - Existing subject docs (created pre-spec-03) stored `roomType` and had
+    no `roomId`, so Convex schema validation failed on every push
+    (missing `roomId`; the extra `roomType` field was also rejected once
+    `roomId` was optional). Fixed the stored data, not the code:
+  - Added `convex/migrations.ts` — internal, idempotent
+    `backfillSubjectRoomIds`: for each subject missing `roomId`, reuse an
+    existing room of the subject's stale type or create a `Legacy
+    <Type>` fallback room, then `ctx.db.replace` the doc with `roomId`
+    (drops the stale `roomType`)
+  - Ran it against dev (astute-akita-425): temporarily relaxed the
+    schema (`roomId`/`roomType` optional) so the migration could deploy
+    and run — the strict push would otherwise block on the invalid doc.
+    After backfill (1 doc, `SE 101` → created `Legacy Lab`), restored
+    the strict schema and re-pushed; validation now passes.
+  - Verified `subjects` and `rooms` via `npx convex run --inline-query`
+    (inline-query sandbox works if double quotes are written as single
+    quotes in PowerShell 5.1, which otherwise strips `"` from native
+    args); `npm run lint` (0 errors), `npm run build` passes
 
 ## In Progress
 
-- None. Dean Subject CRUD unit complete.
+- None. Dean Room CRUD unit complete.
 
 ## Next Up
 
-1. Dean Room CRUD (own unit) — fill `/dean/rooms` with hook + Convex
-   mutations per architecture.md
-2. Teacher taskbar/section (own unit)
+1. Teacher taskbar/section (own unit)
+2. Schedule Generation (Dean) + schedule views — depends on Rooms and
+   Subjects (now by room id) and Teacher availability
 
 ## Open Questions
 
 - The antd/shadcn split: existing dashboard components
   (`DeanDashboard`, `TeacherDashboard`, `AppHeader`, root antd
   `ConfigProvider`) still use antd, while new UI (DeanSidebar, Subject
-  Management) uses shadcn. Decide when/how to migrate the remaining antd
-  components to shadcn, or keep antd for them.
+  Management, Room Management) uses shadcn. Decide when/how to migrate
+  the remaining antd components to shadcn, or keep antd for them.
+- Deleting a Room that is still referenced by Subjects: subjects always
+  carry a `roomId` (strict schema), so deleting a referenced room leaves
+  subjects pointing at a missing room (rendered as `—`). Decide whether
+  Room delete should be blocked while subjects reference the room, or
+  clear/reassign those subjects on delete.
+- The `Legacy Lab`/`Legacy Lecture` fallback rooms created by
+  `convex/migrations.ts` are editable/deletable from the Dean room UI —
+  re-assign/move the `SE 101` subject first if the fallback room is
+  deleted.
 
 ## Architecture Decisions
 
@@ -130,11 +186,22 @@ update — all backed by Convex with lint passing.
   (`convex/teachers.ts` `syncFromClerk` action), pulled on page load once
   per session and upserted into Convex; the dropdown then reads Convex
   reactively. Requires `CLERK_SECRET_KEY` as a Convex deployment env.
-- Subject "category" = the required room type (`Lecture`/`Lab`), shown as
-  a badge column and as a select in the form (the only categorical field
-  in the subject model per project-overview).
+- Subject "category" is derived from the room a subject is assigned to:
+  `subjects.roomId` points at a `rooms` document and the table's Category
+  badge shows the room's `Lecture`/`Lab` type (+ name). Per spec 03, the
+  subject form no longer picks a hard-coded type — it picks an actual
+  room from the rooms table.
 - `useSubjects` is the single hook for the page; search filtering is
   transient UI state kept in `SubjectManagement` (useMemo), not in Convex.
+- Subject category/room type now lives on the `rooms` table
+  (`convex/schema.ts`); `subjects.roomId` references the room by Convex
+  `Id`, and `roomName`/`roomType` are joined at query time (mirrors how
+  `teacherId` is joined to teacher names). `RoomType` and its constants
+  are owned by the rooms module (`types/rooms.ts`, `constants/rooms.ts`)
+  and imported by subjects.
+- `useRooms` mirrors `useSubjects`: single hook per page, Result-union
+  `listAll` query, throw-and-catch mutations in the dialog components,
+  Skeleton-based loading/empty/error states.
 
 ## Session Notes
 
@@ -145,3 +212,5 @@ update — all backed by Convex with lint passing.
   inside the root layout's `<main>`).
 - Spec: `context/spec/01-design-taskbar-for-teacher.md`
 - Spec: `context/spec/02-subject-management.md` (Dean Subject CRUD)
+- Spec: `context/spec/03-room-management.md` (Dean Room CRUD + subject
+  room selection)

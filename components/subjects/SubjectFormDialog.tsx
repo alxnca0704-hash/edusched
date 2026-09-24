@@ -21,19 +21,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ROOM_TYPE_LABELS, ROOM_TYPES } from "@/constants/subjects";
+import { ROOM_TYPE_LABELS } from "@/constants/rooms";
 import { errorMessage } from "@/lib/result";
 import { subjectFormSchema } from "@/lib/validation/subject";
 import type {
-  RoomType,
   SubjectFormValues,
   SubjectListItem,
   TeacherOption,
 } from "@/types/subjects";
+import type { Room } from "@/types/rooms";
 
 export interface SubjectFormDialogProps {
   subject?: SubjectListItem;
   teachers: TeacherOption[];
+  rooms: Room[];
   onSubmit: (values: SubjectFormValues) => Promise<void>;
   onClose: () => void;
 }
@@ -43,6 +44,7 @@ type FieldErrors = Partial<Record<keyof SubjectFormValues, string>>;
 export function SubjectFormDialog({
   subject,
   teachers,
+  rooms,
   onSubmit,
   onClose,
 }: SubjectFormDialogProps) {
@@ -54,9 +56,7 @@ export function SubjectFormDialog({
   const [meetingsPerWeek, setMeetingsPerWeek] = useState(
     subject ? String(subject.meetingsPerWeek) : "",
   );
-  const [roomType, setRoomType] = useState<RoomType | null>(
-    subject?.roomType ?? null,
-  );
+  const [roomId, setRoomId] = useState<string | null>(subject?.roomId ?? null);
   const [teacherId, setTeacherId] = useState<string | null>(
     subject?.teacherId ?? null,
   );
@@ -66,6 +66,7 @@ export function SubjectFormDialog({
 
   const isEditing = Boolean(subject);
   const noTeachers = teachers.length === 0;
+  const noRooms = rooms.length === 0;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -74,7 +75,7 @@ export function SubjectFormDialog({
       name,
       durationMinutes,
       meetingsPerWeek,
-      roomType: roomType ?? "",
+      roomId: roomId ?? "",
       teacherId: teacherId ?? "",
     });
 
@@ -184,33 +185,36 @@ export function SubjectFormDialog({
           </div>
 
           <div className="grid gap-2">
-            <Label>Category / room type</Label>
+            <Label>Room</Label>
             <Select
-              value={roomType}
-              onValueChange={(value) =>
-                setRoomType(value as RoomType | null)
-              }
+              value={roomId}
+              onValueChange={setRoomId}
               modal={false}
             >
               <SelectTrigger className="w-full">
                 <SelectValue>
-                  {(value) =>
-                    value
-                      ? ROOM_TYPE_LABELS[value as RoomType]
-                      : "Select a room type"
-                  }
+                  {(value) => {
+                    const room = rooms.find((r) => r._id === value);
+                    return room ? (
+                      `${room.name} (${ROOM_TYPE_LABELS[room.type]})`
+                    ) : noRooms ? (
+                      "No rooms available"
+                    ) : (
+                      "Select a room"
+                    );
+                  }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {ROOM_TYPES.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {ROOM_TYPE_LABELS[type]}
+                {rooms.map((room) => (
+                  <SelectItem key={room._id} value={room._id}>
+                    {room.name} ({ROOM_TYPE_LABELS[room.type]})
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {fieldErrors.roomType ? (
-              <p className="text-xs text-destructive">{fieldErrors.roomType}</p>
+            {fieldErrors.roomId ? (
+              <p className="text-xs text-destructive">{fieldErrors.roomId}</p>
             ) : null}
           </div>
 

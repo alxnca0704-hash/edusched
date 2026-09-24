@@ -11,11 +11,17 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_clerkId", ["clerkId"]).index("by_role", ["role"]),
+  rooms: defineTable({
+    name: v.string(),
+    type: v.union(v.literal("lecture"), v.literal("lab")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }),
   subjects: defineTable({
     name: v.string(),
     durationMinutes: v.number(),
     meetingsPerWeek: v.number(),
-    roomType: v.union(v.literal("lecture"), v.literal("lab")),
+    roomId: v.id("rooms"),
     teacherId: v.string(),
     createdAt: v.number(),
     updatedAt: v.number(),
